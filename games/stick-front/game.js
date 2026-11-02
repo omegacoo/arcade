@@ -564,14 +564,6 @@
     ctx.arc(x, hy - 1, 8.5, Math.PI, 0);
     ctx.lineTo(x + 8.5 * facing + (facing > 0 ? 3 : -3), hy - 1);
     ctx.stroke();
-    // belt / backpack mark
-    if (isPlayer) {
-      ctx.beginPath();
-      line(x - facing * 1, shY + 2, x - facing * 8, shY + 4);
-      line(x - facing * 8, shY + 4, x - facing * 8, hipY - 2);
-      ctx.stroke();
-    }
-
     // rifle + arms (held pointing along aim)
     var kick = f.recoil ? f.recoil * 3 : 0;
     var ox = x - Math.cos(aim) * kick, oy = shY + 2 - Math.sin(aim) * kick;
