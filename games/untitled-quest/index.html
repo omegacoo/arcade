@@ -7,7 +7,6 @@
   <link rel="stylesheet" href="../../css/site.css?v=2">
   <style>
     .cabinet { max-width: 768px; }
-    .scores { max-width: 768px; }
     .cabinet canvas { image-rendering: pixelated; cursor: default; }
   </style>
 </head>
@@ -15,16 +14,11 @@
   <div class="wrap">
     <a class="back" href="../../">&larr; Back to Ben's Arcade</a>
     <div class="cabinet">
-      <div class="hud"><span>UNTITLED QUEST</span><span>SCORE: <span id="score">0</span></span></div>
+      <div class="hud"><span>UNTITLED QUEST</span></div>
       <canvas id="game" width="256" height="224"></canvas>
-      <p class="hint">Arrow keys or WASD to move the cursor, Enter / Z / Space to confirm, Esc / X to go back, M to mute. You are the dark lord. Make the heroes regret coming.</p>
+      <p class="hint">Arrow keys or WASD to move the cursor, Enter / Z / Space to confirm, Esc / X to go back, M to mute. In the overworld, hold the arrow keys / WASD or the mouse button to walk. You are the dark lord. Make the heroes regret coming.</p>
     </div>
-    <section class="scores">
-      <h2>High Scores</h2>
-      <ol id="scores"></ol>
-    </section>
   </div>
-  <script src="../../js/scores.js"></script>
-  <script src="game.js?v=1"></script>
+  <script src="game.js?v=2"></script>
 </body>
 </html>
