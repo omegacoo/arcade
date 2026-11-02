@@ -58,7 +58,8 @@
   // Gravity + landing on the ground or a structure top. Shared by the player and enemies.
   function stepBody(f, dt, drop) {
     var prevY = f.y;
-    f.vy += GRAVITY * dt;
+    if (f.chute) f.vy = 75; // parachuting: constant slow descent
+    else f.vy += GRAVITY * dt;
     f.y += f.vy * dt;
     var landed = false;
     if (f.y >= GY) { f.y = GY; landed = true; }
@@ -70,7 +71,7 @@
         }
       }
     }
-    if (landed) { f.vy = 0; f.onGround = true; f.jumps = 0; }
+    if (landed) { f.vy = 0; f.onGround = true; f.jumps = 0; f.chute = false; }
     else f.onGround = false;
   }
 
@@ -110,8 +111,12 @@
     var side = Math.random() < 0.5 ? -1 : 1;
     // Some attackers head for a rooftop or tower deck and fight from up there.
     var post = Math.random() < 0.45 ? POSTS[Math.floor(Math.random() * POSTS.length)] : null;
+    // Some attackers drop in by parachute instead of walking in from the edges.
+    var para = Math.random() < 0.3;
+    if (para) post = null;
     return {
-      x: side < 0 ? -30 : W + 30, y: GY, vx: 0, vy: 0, hp: HP, onGround: true, jumps: 0,
+      x: para ? rand(80, W - 80) : side < 0 ? -30 : W + 30, y: para ? -50 : GY, vx: 0, vy: 0, hp: HP,
+      onGround: !para, chute: para, jumps: 0,
       post: post, tx: post ? rand(post.x + 14, post.x + post.w - 14) : 0,
       walk: Math.random() * 6, aim: 0, range: rand(220, 380), rangeTimer: rand(2, 4),
       burst: 0, burstTimer: rand(0.8, 1.8), shotTimer: 0, flash: 0, dead: 0, fall: 0,
@@ -282,6 +287,7 @@
 
   function killEnemy(e, headshot) {
     e.dead = 0.001;
+    e.chute = false;
     kills++;
     score += headshot ? 150 : 100;
     scoreEl.textContent = score;
@@ -302,7 +308,10 @@
     var dir = dx >= 0 ? 1 : -1;
     var want = 0;
 
-    if (e.post) {
+    if (e.chute) {
+      // drift toward the player's side of the base while descending
+      want = dist > 60 ? dir * 0.5 : 0;
+    } else if (e.post) {
       // climb to the assigned rooftop and hold it
       var s = e.post;
       var onTop = e.onGround && Math.abs(e.y - s.top) < 1;
@@ -331,7 +340,7 @@
     e.aim = Math.atan2((player.y - 30) - o.y, player.x - o.x);
 
     // only shoot once on screen
-    var onScreen = Math.abs(e.x - (camX + W / 2)) < W / 2 - 10;
+    var onScreen = Math.abs(e.x - (camX + W / 2)) < W / 2 - 10 && e.y > 20;
     if (!onScreen) return;
     e.burstTimer -= dt;
     if (e.burst > 0) {
@@ -432,19 +441,68 @@
 
   function drawBase() {
     ctx.lineWidth = 2;
+    // central radar/comms tower that the high catwalks hang off
+    ctx.strokeStyle = "#5967a3";
+    ctx.beginPath();
+    line(482, 270, 478, GY); line(518, 270, 522, GY);
+    for (var my = 270; my < GY; my += 40) {
+      var my2 = Math.min(my + 40, GY);
+      line(482, my, 518, my);
+      if ((my - 270) / 40 % 2 === 0) line(482, my, 518, my2); else line(518, my, 482, my2);
+    }
+    // antenna mast and radar dish above the top catwalk
+    line(500, 270, 500, 215); line(492, 232, 508, 232);
+    line(560, 270, 560, 262); // beacon stub
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(468, 252, 14, Math.PI * 0.9, Math.PI * 1.9);
+    line(468, 252, 468, 270);
+    ctx.stroke();
+    ctx.strokeStyle = "#ff4d5e";
+    ctx.beginPath();
+    ctx.arc(500, 212, 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#5967a3";
     STRUCTS.forEach(function (s) {
       var x = s.x, w = s.w, t = s.top, h = GY - t;
       ctx.strokeStyle = "#5967a3";
       ctx.fillStyle = "#141836";
       if (s.type === "deck") {
+        // catwalk off the central radar tower: truss underside, outer support leg, railing
+        var topDeck = t < 300;
+        var west = x < 500;
+        var outer = west ? x + 6 : x + w - 6;
+        var inner = west ? x + w : x;
         ctx.beginPath();
         for (var d = 0; d <= w; d += 26) line(x + d, t, x + Math.min(d + 13, w), t + 12);
         line(x, t + 12, x + w, t + 12);
+        if (topDeck) {
+          line(x + 8, t + 12, 490, t + 70); line(x + w - 8, t + 12, 510, t + 70);
+        } else {
+          line(outer, t + 12, outer, GY);
+          line(outer - 5, GY, outer, GY - 40); line(outer + 5, GY, outer, GY - 40);
+          for (var by = t + 50; by < GY - 40; by += 60) {
+            line(outer, by, west ? outer + 22 : outer - 22, by - 38);
+          }
+          line(outer, t + 52, west ? x + 40 : x + w - 40, t + 12);
+        }
+        // railing
+        line(x, t, x, t - 20); line(x + w, t, x + w, t - 20);
+        line(x, t - 20, x + w, t - 20);
+        line(x, t - 10, x + w, t - 10);
+        if (topDeck) line(x + w / 2, t, x + w / 2, t - 20);
         ctx.stroke();
         ctx.lineWidth = 3;
         ctx.beginPath();
         line(x - 4, t, x + w + 4, t);
         ctx.stroke();
+        ctx.lineWidth = 2;
+        if (!topDeck) {
+          // stairs/ladder hint where the catwalk meets the tower
+          ctx.beginPath();
+          for (var r = 0; r < 4; r++) line(inner - (west ? 14 : -14), t + 18 + r * 16, inner, t + 18 + r * 16);
+          ctx.stroke();
+        }
       } else if (s.type === "tower") {
         var y0 = t + 8;
         var lx = function (y) { return x + 2 - 8 * (y - y0) / (GY - y0); };
@@ -542,6 +600,23 @@
       ctx.translate(x, y);
       ctx.rotate(tip * f.fall * (Math.PI / 2) * 0.95);
       ctx.translate(-x, -y);
+    }
+
+    if (f.chute && alive) {
+      // canopy with rigging down to the shoulders
+      var cy = y - 100;
+      ctx.beginPath();
+      ctx.arc(x, cy, 26, Math.PI, 0);
+      line(x - 26, cy, x + 26, cy);
+      line(x - 9, cy - 24, x - 9, cy);
+      line(x + 9, cy - 24, x + 9, cy);
+      ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      line(x - 26, cy, x, y - 44); line(x + 26, cy, x, y - 44);
+      line(x - 9, cy, x, y - 44); line(x + 9, cy, x, y - 44);
+      ctx.stroke();
+      ctx.lineWidth = 3;
     }
 
     var aim = f.aim;
