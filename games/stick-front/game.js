@@ -1716,7 +1716,12 @@
       if (e.rag) drawRagdoll(e, e.hit > 0 ? "#ffffff" : e.color); else drawFigure(e, e.color, false);
     });
     enemies.forEach(function (e) { if (!e.dead) drawFigure(e, e.color, false); });
-    if (player.rag) drawRagdoll(player, "#39ff88"); else drawFigure(player, "#39ff88", true);
+    // Bright yellow with a dark halo: reads against the pale day sky, the orange dusk and the navy night.
+    ctx.save();
+    ctx.shadowColor = "rgba(10,14,40,0.95)";
+    ctx.shadowBlur = 5;
+    if (player.rag) drawRagdoll(player, "#ffe600"); else drawFigure(player, "#ffe600", true);
+    ctx.restore();
     drawDebris();
     bombers.forEach(drawBomber);
     drawLasers();
