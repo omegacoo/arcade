@@ -6,7 +6,7 @@
   var VILLAIN = "MORVATH";
 
   var canvas = document.getElementById("game");
-  var ctx = canvas.getContext("2d");
+  var ctx = canvas.getContext("2d", { willReadFrequently: true });
   ctx.imageSmoothingEnabled = false;
   var BOSS_LV = 99;
 
@@ -80,45 +80,79 @@
 
   /* ---------------------------------------------------------------- font */
 
+  // 5x7 glyphs on a 6px advance, like the NES originals. Scales below 4 all render
+  // at 1x; larger scales multiply the pixel size.
   var FONT = {
-    A: "010101111101101", B: "110101110101110", C: "011100100100011",
-    D: "110101101101110", E: "111100110100111", F: "111100110100100",
-    G: "011100101101011", H: "101101111101101", I: "111010010010111",
-    J: "001001001101010", K: "101101110101101", L: "100100100100111",
-    M: "101111111101101", N: "110101101101101", O: "010101101101010",
-    P: "110101110100100", Q: "010101101110011", R: "110101110101101",
-    S: "011100010001110", T: "111010010010010", U: "101101101101111",
-    V: "101101101101010", W: "101101111111101", X: "101101010101101",
-    Y: "101101010010010", Z: "111001010100111",
-    "0": "111101101101111", "1": "010110010010111", "2": "110001010100111",
-    "3": "110001010001110", "4": "101101111001001", "5": "111100110001110",
-    "6": "011100111101111", "7": "111001010010010", "8": "111101111101111",
-    "9": "111101111001110",
-    ".": "000000000000010", ",": "000000000010100", "!": "010010010000010",
-    "?": "110001010000010", "'": "010010000000000", "-": "000000111000000",
-    ":": "000010000010000", "/": "001001010100100", "%": "101001010100101",
-    "+": "000010111010000", "_": "000000000000111"
+    A: "01110100011000111111100011000110001",
+    B: "11110100011000111110100011000111110",
+    C: "01110100011000010000100001000101110",
+    D: "11110100011000110001100011000111110",
+    E: "11111100001000011110100001000011111",
+    F: "11111100001000011110100001000010000",
+    G: "01110100011000010111100011000101111",
+    H: "10001100011000111111100011000110001",
+    I: "01110001000010000100001000010001110",
+    J: "00111000100001000010000101001001100",
+    K: "10001100101010011000101001001010001",
+    L: "10000100001000010000100001000011111",
+    M: "10001110111010110101100011000110001",
+    N: "10001110011010110011100011000110001",
+    O: "01110100011000110001100011000101110",
+    P: "11110100011000111110100001000010000",
+    Q: "01110100011000110001101011001001101",
+    R: "11110100011000111110101001001010001",
+    S: "01111100001000001110000010000111110",
+    T: "11111001000010000100001000010000100",
+    U: "10001100011000110001100011000101110",
+    V: "10001100011000110001100010101000100",
+    W: "10001100011000110101101011101110001",
+    X: "10001100010101000100010101000110001",
+    Y: "10001100010101000100001000010000100",
+    Z: "11111000010001000100010001000011111",
+    "0": "01110100011001110101110011000101110",
+    "1": "00100011000010000100001000010001110",
+    "2": "01110100010000100010001000100011111",
+    "3": "11110000010000101110000010000111110",
+    "4": "00010001100101010010111110001000010",
+    "5": "11111100001111000001000011000101110",
+    "6": "00110010001000011110100011000101110",
+    "7": "11111000010001000100010000100001000",
+    "8": "01110100011000101110100011000101110",
+    "9": "01110100011000101111000010001001100",
+    ".": "00000000000000000000000000110001100",
+    ",": "00000000000000000000011000010001000",
+    "!": "00100001000010000100001000000000100",
+    "?": "01110100010000100010001000000000100",
+    "'": "00100001000100000000000000000000000",
+    "-": "00000000000000011111000000000000000",
+    ":": "00000011000110000000011000110000000",
+    "/": "00001000010001000100010001000010000",
+    "%": "11001110100001000100010000101110011",
+    "+": "00000001000010011111001000010000000",
+    "_": "00000000000000000000000000000011111"
   };
 
+  function fpx(scale) { return scale >= 4 ? scale >> 1 : 1; }
+
   function text(str, x, y, color, scale) {
-    scale = scale || 1;
+    var px = fpx(scale || 1);
     ctx.fillStyle = color || "#fff";
     str = String(str).toUpperCase();
     var cx = x;
     for (var i = 0; i < str.length; i++) {
       var g = FONT[str.charAt(i)];
       if (g) {
-        for (var p = 0; p < 15; p++) {
+        for (var p = 0; p < 35; p++) {
           if (g.charAt(p) === "1") {
-            ctx.fillRect(cx + (p % 3) * scale, y + ((p / 3) | 0) * scale, scale, scale);
+            ctx.fillRect(cx + (p % 5) * px, y + ((p / 5) | 0) * px, px, px);
           }
         }
       }
-      cx += 4 * scale;
+      cx += 6 * px;
     }
   }
 
-  function textW(str, scale) { return String(str).length * 4 * scale - scale; }
+  function textW(str, scale) { var px = fpx(scale || 1); return (String(str).length * 6 - 1) * px; }
 
   function ctext(str, y, color, scale) {
     scale = scale || 2;
@@ -149,20 +183,28 @@
     return c;
   }
 
+  // Sprites get a 1px black outline, as on the NES.
   function mkSprite(w, h, rects) {
-    var c = cv(w, h), g = c.getContext("2d");
-    rects.forEach(function (r) { g.fillStyle = r[4]; g.fillRect(r[0], r[1], r[2], r[3]); });
-    var f = cv(w, h), fg = f.getContext("2d");
+    var base = cv(w + 2, h + 2), bg = base.getContext("2d");
+    rects.forEach(function (r) { bg.fillStyle = r[4]; bg.fillRect(r[0] + 1, r[1] + 1, r[2], r[3]); });
+    var c = cv(w + 2, h + 2), g = c.getContext("2d");
+    [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(function (d) { g.drawImage(base, d[0], d[1]); });
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = "#000";
+    g.fillRect(0, 0, w + 2, h + 2);
+    g.globalCompositeOperation = "source-over";
+    g.drawImage(base, 0, 0);
+    var f = cv(w + 2, h + 2), fg = f.getContext("2d");
     fg.drawImage(c, 0, 0);
     fg.globalCompositeOperation = "source-in";
     fg.fillStyle = "#fff";
-    fg.fillRect(0, 0, w, h);
+    fg.fillRect(0, 0, w + 2, h + 2);
     return { img: c, flash: f, w: w, h: h };
   }
 
   function drawSpr(s, x, y, scale, flash, alpha) {
     ctx.globalAlpha = alpha == null ? 1 : alpha;
-    ctx.drawImage(flash ? s.flash : s.img, Math.round(x), Math.round(y), s.w * scale, s.h * scale);
+    ctx.drawImage(flash ? s.flash : s.img, Math.round(x) - scale, Math.round(y) - scale, (s.w + 2) * scale, (s.h + 2) * scale);
     ctx.globalAlpha = 1;
   }
 
@@ -213,19 +255,19 @@
   ]);
 
   SPR.lord = mkSprite(24, 32, [
-    [2, 10, 20, 19, "#701020"], [2, 26, 20, 3, "#4a0a16"],
-    [8, 22, 3, 8, "#1c1c28"], [13, 22, 3, 8, "#1c1c28"],
-    [7, 29, 5, 3, "#101018"], [12, 29, 5, 3, "#101018"],
-    [7, 11, 10, 11, "#2c2c3e"], [7, 11, 10, 2, "#5a5a74"], [11, 15, 2, 3, "#c02040"],
-    [7, 21, 10, 1, "#802030"],
-    [4, 13, 3, 8, "#2c2c3e"], [17, 13, 3, 8, "#2c2c3e"],
-    [4, 21, 3, 2, "#5a5a74"], [17, 21, 3, 2, "#5a5a74"],
-    [3, 10, 5, 4, "#3a3a52"], [16, 10, 5, 4, "#3a3a52"],
-    [3, 8, 1, 2, "#7a7a96"], [6, 8, 1, 2, "#7a7a96"], [17, 8, 1, 2, "#7a7a96"], [20, 8, 1, 2, "#7a7a96"],
+    [2, 10, 20, 19, "#a80020"], [2, 26, 20, 3, "#881400"],
+    [8, 22, 3, 8, "#000"], [13, 22, 3, 8, "#000"],
+    [7, 29, 5, 3, "#000"], [12, 29, 5, 3, "#000"],
+    [7, 11, 10, 11, "#4428bc"], [7, 11, 10, 2, "#bcbcbc"], [11, 15, 2, 3, "#f8b800"],
+    [7, 21, 10, 1, "#f83800"],
+    [4, 13, 3, 8, "#4428bc"], [17, 13, 3, 8, "#4428bc"],
+    [4, 21, 3, 2, "#bcbcbc"], [17, 21, 3, 2, "#bcbcbc"],
+    [3, 10, 5, 4, "#6844fc"], [16, 10, 5, 4, "#6844fc"],
+    [3, 8, 1, 2, "#bcbcbc"], [6, 8, 1, 2, "#bcbcbc"], [17, 8, 1, 2, "#bcbcbc"], [20, 8, 1, 2, "#bcbcbc"],
     [5, 0, 2, 6, "#d8d0b0"], [17, 0, 2, 6, "#d8d0b0"],
-    [7, 2, 10, 9, "#402050"], [9, 5, 7, 4, "#0a000c"],
+    [7, 2, 10, 9, "#4428bc"], [9, 5, 7, 4, "#000"],
     [10, 6, 2, 1, "#ff3030"], [14, 6, 2, 1, "#ff3030"],
-    [21, 6, 1, 24, "#806040"], [19, 3, 5, 4, "#c040ff"], [20, 4, 3, 2, "#f0b0ff"]
+    [21, 6, 1, 24, "#AC7C00"], [19, 3, 5, 4, "#c040ff"], [20, 4, 3, 2, "#f0b0ff"]
   ]);
 
   // MORVATH after the Dawnblade: no armor, no staff, no crown.
@@ -246,56 +288,64 @@
 
   var BG_ROOM = (function () {
     var c = cv(W, H), g = c.getContext("2d");
-    var wall = g.createLinearGradient(0, 0, 0, 110);
-    wall.addColorStop(0, "#120a22");
-    wall.addColorStop(1, "#2a1638");
-    g.fillStyle = wall; g.fillRect(0, 0, W, 110);
-    g.fillStyle = "#1c1228"; g.fillRect(0, 110, W, H - 110);
+    g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
     for (var y = 110, row = 0; y < H; y += 18, row++) {
-      g.fillStyle = "#2a1c3c"; g.fillRect(0, y, W, 1);
+      g.fillStyle = "#0000bc"; g.fillRect(0, y, W, 1);
       for (var x = (row % 2) * 16; x < W; x += 32) g.fillRect(x, y, 1, 18);
     }
     [[6, 0], [234, 0]].forEach(function (p) {
-      g.fillStyle = "#3a2a50"; g.fillRect(p[0], 0, 16, 110);
-      g.fillStyle = "#54406e"; g.fillRect(p[0], 0, 3, 110);
-      g.fillStyle = "#241838"; g.fillRect(p[0] + 13, 0, 3, 110);
-      g.fillStyle = "#ffb040"; g.fillRect(p[0] + 6, 20, 4, 5);
-      g.fillStyle = "#ffe080"; g.fillRect(p[0] + 7, 21, 2, 2);
+      g.fillStyle = "#4428bc"; g.fillRect(p[0], 0, 16, 110);
+      g.fillStyle = "#9878f8"; g.fillRect(p[0], 0, 3, 110);
+      g.fillStyle = "#000"; g.fillRect(p[0] + 13, 0, 3, 110);
+      g.fillStyle = "#f83800"; g.fillRect(p[0] + 6, 20, 4, 5);
+      g.fillStyle = "#f8b800"; g.fillRect(p[0] + 7, 21, 2, 2);
     });
     [[52, 0], [190, 0]].forEach(function (p) {
-      g.fillStyle = "#6a1020"; g.fillRect(p[0], 6, 14, 48);
-      g.fillStyle = "#8a1830"; g.fillRect(p[0], 6, 14, 3);
-      g.fillStyle = "#6a1020"; g.fillRect(p[0], 54, 4, 4); g.fillRect(p[0] + 10, 54, 4, 4);
-      g.fillStyle = "#c8a030"; g.fillRect(p[0] + 5, 22, 4, 4);
+      g.fillStyle = "#a80020"; g.fillRect(p[0], 6, 14, 48);
+      g.fillStyle = "#f83800"; g.fillRect(p[0], 6, 14, 3);
+      g.fillStyle = "#a80020"; g.fillRect(p[0], 54, 4, 4); g.fillRect(p[0] + 10, 54, 4, 4);
+      g.fillStyle = "#f8b800"; g.fillRect(p[0] + 5, 22, 4, 4);
     });
     return c;
   })();
 
-  function shadow(x, y, w) {
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
-    ctx.fillRect(Math.round(x + 3), Math.round(y), w - 6, 4);
-    ctx.fillRect(Math.round(x), Math.round(y + 1), w, 2);
-  }
+  // The NES games have no ground shadows.
+  function shadow() {}
 
+  // Flat blue window, white double border, notched corners.
   function win(x, y, w, h) {
-    ctx.fillStyle = "#f8f8f8";
-    ctx.fillRect(x, y, w, h);
-    var g = ctx.createLinearGradient(0, y, 0, y + h);
-    g.addColorStop(0, "#2a3cc8");
-    g.addColorStop(1, "#101870");
-    ctx.fillStyle = g;
-    ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
-    ctx.fillStyle = "#000";
-    ctx.fillRect(x, y, 1, 1); ctx.fillRect(x + w - 1, y, 1, 1);
-    ctx.fillRect(x, y + h - 1, 1, 1); ctx.fillRect(x + w - 1, y + h - 1, 1, 1);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(x + 1, y, w - 2, h);
+    ctx.fillRect(x, y + 1, w, h - 2);
+    ctx.fillStyle = "#0000bc";
+    ctx.fillRect(x + 3, y + 2, w - 6, h - 4);
+    ctx.fillRect(x + 2, y + 3, w - 4, h - 6);
   }
 
+  var GLOVE = [
+    "..XXX.....",
+    ".XXXXXXXX.",
+    "XXXXXXXXXX",
+    ".XXXXXXXX.",
+    ".XXXXXX...",
+    "..XXXX...."
+  ];
+
+  // The pointing-hand cursor, 10x6 with a black outline.
   function pointer(x, y) {
+    var r, c;
+    ctx.fillStyle = "#000";
+    for (r = 0; r < GLOVE.length; r++) {
+      for (c = 0; c < 10; c++) {
+        if (GLOVE[r].charAt(c) === "X") { ctx.fillRect(x + c - 1, y + r, 3, 1); ctx.fillRect(x + c, y + r - 1, 1, 3); }
+      }
+    }
     ctx.fillStyle = "#fff";
-    ctx.fillRect(x, y, 2, 7);
-    ctx.fillRect(x + 2, y + 1, 2, 5);
-    ctx.fillRect(x + 4, y + 2, 2, 3);
-    ctx.fillRect(x + 6, y + 3, 1, 1);
+    for (r = 0; r < GLOVE.length; r++) {
+      for (c = 0; c < 10; c++) {
+        if (GLOVE[r].charAt(c) === "X") ctx.fillRect(x + c, y + r, 1, 1);
+      }
+    }
   }
 
   /* --------------------------------------------------------------- mouse */
@@ -556,9 +606,9 @@
       (function (i) {
         var it = items[i];
         var ry = y + i * rowH;
-        if (i === sel) pointer(x, ry + ((5 * scale - 7) >> 1) + 1);
-        text(it.label, x + 10, ry, it.dim ? "#8890b8" : "#fff", scale);
-        if (it.right) text(it.right, x + w - 10 - textW(it.right, 1), ry + 3, it.dim ? "#8890b8" : "#ffe070", 1);
+        if (i === sel) pointer(x, ry + 1);
+        text(it.label, x + 13, ry, it.dim ? "#7c7c7c" : "#fff", scale);
+        if (it.right) text(it.right, x + w - 6 - textW(it.right, 1), ry, it.dim ? "#7c7c7c" : "#f8d878", 1);
         region(x, ry - 1, w, rowH, function () { onSel(i); }, function () { onSel(i); onPick(i); });
       })(i);
     }
@@ -588,16 +638,14 @@
       else if (a === "ok") this.pick(this.sel);
     },
     draw: function () {
-      var g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, "#05030f"); g.addColorStop(0.6, "#1a0f33"); g.addColorStop(1, "#3a1448");
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
       drawStars(this.t, 140);
       ctx.fillStyle = "#e8e0c0";
       ctx.fillRect(218, 92, 8, 2); ctx.fillRect(214, 94, 6, 2); ctx.fillRect(212, 96, 4, 8);
       ctx.fillRect(214, 104, 6, 2); ctx.fillRect(218, 106, 8, 2);
       ctx.fillStyle = "#c8c0a0"; ctx.fillRect(216, 96, 2, 8);
       // castle
-      ctx.fillStyle = "#08040f";
+      ctx.fillStyle = "#0000bc";
       ctx.fillRect(66, 150, 124, 74);
       ctx.fillRect(58, 128, 24, 96); ctx.fillRect(174, 128, 24, 96); ctx.fillRect(110, 118, 36, 106);
       for (var k = 0; k < 4; k++) {
@@ -610,13 +658,13 @@
       [[68, 140], [74, 160], [182, 140], [186, 160], [124, 130], [130, 150], [124, 170], [100, 164], [150, 164]].forEach(function (p) {
         ctx.fillRect(p[0], p[1], 3, 4);
       });
-      ctx.fillStyle = "#08040f"; ctx.fillRect(0, 196, W, 28);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 196, W, 28);
 
       var by = 24 + Math.round(Math.sin(this.t * 1.5) * 1);
-      ctext("UNTITLED", by + 3, "#400018", 4);
-      ctext("UNTITLED", by, "#f8d848", 4);
-      ctext("QUEST", by + 27, "#400018", 4);
-      ctext("QUEST", by + 24, "#ff5060", 4);
+      ctext("UNTITLED", by + 3, "#000", 6);
+      ctext("UNTITLED", by, "#f8b800", 6);
+      ctext("QUEST", by + 27, "#000", 6);
+      ctext("QUEST", by + 24, "#f83800", 6);
 
       var self = this;
       var items = this.items();
@@ -674,7 +722,7 @@
   function dialogBox(who, col, str, chars) {
     win(4, 164, 248, 56);
     text(who, 14, 170, col, 2);
-    var lines = wrap(str, 27), left = Math.floor(chars);
+    var lines = wrap(str, 36), left = Math.floor(chars);
     for (var i = 0; i < lines.length; i++) {
       var s = lines[i].substr(0, Math.max(0, left));
       text(s, 14, 186 + i * 14, "#fff", 2);
@@ -1218,7 +1266,7 @@
         var live = liveHeroes();
         if (live.length) {
           var tg = firstLive(b.tgt);
-          pointer(tg.x - 9, tg.y + 20);
+          pointer(tg.x - 13, tg.y + 20);
           live.forEach(function (h) {
             region(h.x - 4, h.y, 40, 52, function () { if (firstLive(b.tgt) !== h) { targetClick(h); sfx("cursor"); } },
               function () { targetClick(h); confirmTarget(); });
@@ -1404,7 +1452,7 @@
     caption: function (t0, who, col, str) {
       win(4, 170, 248, 50);
       text(who, 14, 176, col, 2);
-      var lines = wrap(str, 27), left = Math.floor((this.t - t0) * 30);
+      var lines = wrap(str, 36), left = Math.floor((this.t - t0) * 30);
       for (var i = 0; i < lines.length; i++) {
         text(lines[i].substr(0, Math.max(0, left)), 14, 192 + i * 14, "#fff", 2);
         left -= lines[i].length + 1;
@@ -1417,7 +1465,7 @@
         drawVillage(v, t, st);
         this.caption(si * SHOT + 0.4, v.name, "#ffe070", v.line);
         var a = Math.max(0, 1 - st / 0.3, (st - (SHOT - 0.3)) / 0.3);
-        if (a > 0) { ctx.globalAlpha = Math.min(1, a); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+        dim = Math.max(dim, a);
         return;
       }
       var rt = t - REVEAL_AT;
@@ -1456,8 +1504,7 @@
       }
       var fadeAt = CUT_END - REVEAL_AT - 0.8;
       if (rt > fadeAt) {
-        ctx.globalAlpha = Math.min(1, (rt - fadeAt) / 0.8);
-        ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+        dim = Math.max(dim, (rt - fadeAt) / 0.8);
       }
     }
   };
@@ -1753,12 +1800,54 @@
   window.addEventListener("focus", function () { if (actx && actx.state === "suspended") actx.resume(); });
   canvas.addEventListener("mouseenter", function () { if (actx && actx.state === "suspended") actx.resume(); });
 
+  /* ------------------------------------------------------------- palette */
+
+  // Every frame is snapped to the NES master palette, which flattens gradients
+  // and alpha blends into the banded look of the originals.
+  var NES = ("7C7C7C 0000FC 0000BC 4428BC 940084 A80020 A81000 881400 503000 007800 006800 005800 004058 000000 " +
+    "BCBCBC 0078F8 0058F8 6844FC D800CC E40058 F83800 E45C10 AC7C00 00B800 00A800 00A844 008888 " +
+    "F8F8F8 3CBCFC 6888FC 9878F8 F878F8 F85898 F87858 FCA044 F8B800 B8F818 58D854 58F898 00E8D8 787878 " +
+    "FCFCFC A4E4FC B8B8F8 D8B8F8 F8B8F8 F8A4C0 F0D0B0 FCE0A8 F8D878 D8F878 B8F8B8 B8F8D8 00FCFC F8D8F8").split(" ")
+    .map(function (h) { return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)]; });
+
+  var LUT = new Uint8Array(4096 * 3);
+  (function () {
+    for (var k = 0; k < 4096; k++) {
+      var r = ((k >> 8) & 15) * 17, g = ((k >> 4) & 15) * 17, bl = (k & 15) * 17, best = 0, bd = 1e9;
+      for (var i = 0; i < NES.length; i++) {
+        var dr = r - NES[i][0], dg = g - NES[i][1], db = bl - NES[i][2];
+        var d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+        if (d < bd) { bd = d; best = i; }
+      }
+      LUT[k * 3] = NES[best][0]; LUT[k * 3 + 1] = NES[best][1]; LUT[k * 3 + 2] = NES[best][2];
+    }
+  })();
+
+  // Fades darken the already-snapped frame in four steps instead of blending hues.
+  var dim = 0;
+
+  function retro() {
+    var im = ctx.getImageData(0, 0, W, H), d = im.data;
+    for (var i = 0; i < d.length; i += 4) {
+      var k = ((d[i] >> 4) * 256 + (d[i + 1] >> 4) * 16 + (d[i + 2] >> 4)) * 3;
+      d[i] = LUT[k]; d[i + 1] = LUT[k + 1]; d[i + 2] = LUT[k + 2];
+    }
+    ctx.putImageData(im, 0, 0);
+    var a = Math.ceil(Math.min(1, Math.max(dim, fade.a)) * 4) / 4;
+    if (a > 0) {
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+  }
+
   /* ---------------------------------------------------------------- loop */
 
   var last = performance.now();
 
   function frame(now) {
-    var dt = Math.min(0.05, (now - last) / 1000);
+    var dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now;
 
     if (fade.state === "out") {
@@ -1777,14 +1866,9 @@
     if (fade.state !== "out" && cur.update) cur.update(dt);
 
     hits.length = 0;
+    dim = 0;
     cur.draw();
-
-    if (fade.a > 0) {
-      ctx.globalAlpha = fade.a;
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, W, H);
-      ctx.globalAlpha = 1;
-    }
+    retro();
     requestAnimationFrame(frame);
   }
 
