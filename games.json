@@ -1,0 +1,9 @@
+[
+  {
+    "id": "snake",
+    "title": "Snake",
+    "description": "Eat, grow, don't hit yourself.",
+    "thumb": "games/snake/thumb.svg",
+    "path": "games/snake/"
+  }
+]
