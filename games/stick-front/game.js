@@ -1,20 +1,26 @@
 (function () {
   var GAME_ID = "stick-front";
-  var W = 800, H = 450;
-  var GY = 380; // ground line (y of feet)
+  // World units; the canvas is drawn at SCALE so everything looks a bit smaller and more map fits.
+  var W = 1000, H = 700;
+  var GY = 640; // ground line (y of feet)
   var GRAVITY = 1800;
   var HP = 3;         // player and enemies share the same health and damage model
 
   // The base: one fixed screen. Rooftops and tower decks are one-way surfaces you can
   // jump up through and land on (S drops through). `top` is the y of the standing surface.
   var STRUCTS = [
-    { type: "tower",   x: 24,  w: 56,  top: 200 },
-    { type: "wall",    x: 92,  w: 96,  top: 335 },
-    { type: "bunker",  x: 204, w: 116, top: 300 },
-    { type: "command", x: 480, w: 120, top: 290 },
-    { type: "wall",    x: 612, w: 96,  top: 335 },
-    { type: "tower",   x: 720, w: 56,  top: 200 }
+    { type: "tower",   x: 30,  w: 56,  top: 450 },
+    { type: "wall",    x: 100, w: 100, top: 565 },
+    { type: "bunker",  x: 215, w: 120, top: 520 },
+    { type: "deck",    x: 350, w: 130, top: 390, high: true },
+    { type: "deck",    x: 520, w: 130, top: 390, high: true },
+    { type: "deck",    x: 435, w: 130, top: 270, high: true },
+    { type: "command", x: 665, w: 120, top: 510 },
+    { type: "wall",    x: 800, w: 90,  top: 565 },
+    { type: "tower",   x: 914, w: 56,  top: 450 }
   ];
+  // Ground units can only reach the lower structures; the high decks are for the player.
+  var POSTS = STRUCTS.filter(function (s) { return !s.high; });
 
   // One rifle for everybody (first pass).
   var RIFLE = {
@@ -29,6 +35,7 @@
 
   var canvas = document.getElementById("game");
   var ctx = canvas.getContext("2d");
+  var SCALE = canvas.width / W;
   var scoreEl = document.getElementById("score");
   var scoresEl = document.getElementById("scores");
 
@@ -102,7 +109,7 @@
   function newEnemy() {
     var side = Math.random() < 0.5 ? -1 : 1;
     // Some attackers head for a rooftop or tower deck and fight from up there.
-    var post = Math.random() < 0.45 ? STRUCTS[Math.floor(Math.random() * STRUCTS.length)] : null;
+    var post = Math.random() < 0.45 ? POSTS[Math.floor(Math.random() * POSTS.length)] : null;
     return {
       x: side < 0 ? -30 : W + 30, y: GY, vx: 0, vy: 0, hp: HP, onGround: true, jumps: 0,
       post: post, tx: post ? rand(post.x + 14, post.x + post.w - 14) : 0,
@@ -419,8 +426,8 @@
     ctx.stroke();
 
     // props in the yard between the buildings
-    drawProp(1, 336, GY);
-    drawProp(2, 430, GY);
+    drawProp(1, 380, GY);
+    drawProp(2, 560, GY);
   }
 
   function drawBase() {
@@ -429,7 +436,16 @@
       var x = s.x, w = s.w, t = s.top, h = GY - t;
       ctx.strokeStyle = "#5967a3";
       ctx.fillStyle = "#141836";
-      if (s.type === "tower") {
+      if (s.type === "deck") {
+        ctx.beginPath();
+        for (var d = 0; d <= w; d += 26) line(x + d, t, x + Math.min(d + 13, w), t + 12);
+        line(x, t + 12, x + w, t + 12);
+        ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        line(x - 4, t, x + w + 4, t);
+        ctx.stroke();
+      } else if (s.type === "tower") {
         var y0 = t + 8;
         var lx = function (y) { return x + 2 - 8 * (y - y0) / (GY - y0); };
         var rx = function (y) { return x + w - 2 + 8 * (y - y0) / (GY - y0); };
@@ -670,7 +686,7 @@
   }
 
   function drawHud() {
-    ctx.font = "bold 14px 'Courier New', monospace";
+    ctx.font = "bold 17px 'Courier New', monospace";
     ctx.textBaseline = "top";
     // health
     ctx.strokeStyle = "#cfd8ff";
@@ -705,6 +721,7 @@
   }
 
   function draw() {
+    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     ctx.save();
     if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
     drawBackground();
