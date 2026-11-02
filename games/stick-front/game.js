@@ -938,9 +938,10 @@
     ctx.stroke();
     // rifle + arms (held pointing along aim)
     var kick = f.recoil ? f.recoil * 3 : 0;
-    var ox = x - Math.cos(aim) * kick, oy = shY + 2 - Math.sin(aim) * kick;
+    var ox = x - Math.cos(aim) * kick, oy = shY + 4 - Math.sin(aim) * kick;
     var ca = Math.cos(aim), sa = Math.sin(aim);
-    var tail = { x: ox - ca * 9, y: oy - sa * 9 };
+    // butt of the stock sits in the shoulder pocket, so the rifle doesn't poke out behind the back
+    var tail = { x: ox - ca * 2, y: oy - sa * 2 };
     var tip2 = { x: ox + ca * RIFLE.muzzle, y: oy + sa * RIFLE.muzzle };
     ctx.lineWidth = 3.5;
     ctx.beginPath();
