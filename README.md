@@ -33,3 +33,5 @@ Use relative paths everywhere so the site works under a GitHub Pages repo subpat
 ## High scores
 
 Stored per game in the player's browser (`localStorage`, key `arcade:<id>`). They are local only and not shared between players.
+
+Setup after cloning: `git config core.hooksPath .githooks` (the pre-commit hook refreshes `updated.txt`, the footer timestamp).

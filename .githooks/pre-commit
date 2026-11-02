@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stamp the site footer's "Last updated" time on every commit.
+date -u +%Y-%m-%dT%H:%M:%SZ > updated.txt
+git add updated.txt
