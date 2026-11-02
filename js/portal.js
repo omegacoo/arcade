@@ -42,4 +42,14 @@
     .catch(function () {
       status.textContent = "Could not load the game list. (If opening the file directly, run a local server instead.)";
     });
+
+  var stamp = document.getElementById("updated");
+  fetch("updated.txt", { cache: "no-cache" })
+    .then(function (r) { return r.text(); })
+    .then(function (t) {
+      var d = new Date(t.trim());
+      stamp.textContent = isNaN(d) ? "unknown" : d.toLocaleString();
+      stamp.dateTime = d.toISOString();
+    })
+    .catch(function () { stamp.textContent = "unknown"; });
 })();
