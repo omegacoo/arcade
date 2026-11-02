@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Send Feedback - Ben's Arcade</title>
+  <meta name="description" content="Report a bug, request a feature, or suggest a new game for Ben's Arcade.">
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <h1>Feedback</h1>
+      <p>Found a bug? Got an idea? Tell me.</p>
+    </header>
+    <main>
+      <form id="feedback" class="form" novalidate>
+        <label for="topic">What is this about?</label>
+        <select id="topic" name="topic" required>
+          <option value="" selected disabled>Choose a topic...</option>
+          <option value="Bug">Bug</option>
+          <option value="Feature request">Feature request</option>
+          <option value="New game idea">New game idea</option>
+          <option value="Other">Other</option>
+        </select>
+
+        <label for="message">Your message (plain text only, no links)</label>
+        <textarea id="message" name="message" rows="7" minlength="10" maxlength="2000" required></textarea>
+        <div class="counter"><span id="count">0</span> / 2000</div>
+
+        <label for="reply">Your email (optional, only if you want a reply)</label>
+        <input id="reply" name="reply" type="email" maxlength="200" autocomplete="email">
+
+        <!-- honeypot: real users never see or fill this -->
+        <input type="checkbox" name="botcheck" id="botcheck" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+        <button type="submit" id="send">Submit feedback</button>
+        <p id="result" class="msg" role="status" aria-live="polite"></p>
+      </form>
+      <noscript><p class="msg">This form needs JavaScript enabled.</p></noscript>
+      <p class="msg"><a href="index.html">&larr; Back to the arcade</a></p>
+    </main>
+  </div>
+  <script src="js/contact.js"></script>
+</body>
+</html>
