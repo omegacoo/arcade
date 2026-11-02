@@ -3,13 +3,15 @@
   var W = 800, H = 450;
   var GY = 380; // ground line (y of feet)
   var GRAVITY = 1800;
+  var HP = 3;         // player and enemies share the same health and damage model
+  var PLAT_CELL = 240; // platforms are generated per cell so the world scrolls forever
 
   // One rifle for everybody (first pass).
   var RIFLE = {
     rpm: 600,          // rounds per minute
     mag: 30,
     reload: 1.5,       // seconds
-    speed: 950,        // px/s
+    speed: 1600,       // px/s
     dmg: 1,
     headMult: 3,
     muzzle: 28
@@ -23,7 +25,7 @@
   var keys = {};
   var mouse = { x: W * 0.75, y: GY - 50, down: false };
   var state = "ready"; // ready | playing | paused | over
-  var player, enemies, bullets, particles, drops, camX, time, score, kills;
+  var player, enemies, bullets, particles, camX, time, score, kills;
   var spawnTimer, shake, hurtFlash, lastTs, bloom;
 
   Scores.render(GAME_ID, scoresEl);
@@ -36,16 +38,47 @@
     return x - Math.floor(x);
   }
 
+  // One-way platforms: you can jump up through them and land on top.
+  function platformAt(c) {
+    if (hash(c + 101) < 0.3) return null;
+    var tall = hash(c + 57) > 0.5;
+    return {
+      x: c * PLAT_CELL + hash(c + 13) * 80,
+      y: tall ? GY - 150 : GY - 85,
+      w: 90 + hash(c + 29) * 80
+    };
+  }
+
+  function platformsBetween(x0, x1) {
+    var out = [];
+    for (var c = Math.floor(x0 / PLAT_CELL) - 1; c <= Math.floor(x1 / PLAT_CELL); c++) {
+      var pl = platformAt(c);
+      if (pl) out.push(pl);
+    }
+    return out;
+  }
+
+  function tryJump() {
+    var p = player;
+    if (p.onGround) { p.vy = -620; p.onGround = false; p.jumps = 1; }
+    else {
+      if (p.jumps === 0) p.jumps = 1; // walked off a ledge: the air jump is still the second one
+      if (p.jumps < 2) {
+        p.vy = -620; p.jumps = 2;
+        sparks(p.x, p.y, "#2de2ff", 6);
+      }
+    }
+  }
+
   // ---------- setup ----------
   function reset() {
     player = {
-      x: 0, y: GY, vx: 0, vy: 0, hp: 100, ammo: RIFLE.mag, reloading: 0,
+      x: 0, y: GY, vx: 0, vy: 0, hp: HP, jumps: 0, ammo: RIFLE.mag, reloading: 0,
       cooldown: 0, walk: 0, aim: 0, recoil: 0, flash: 0, onGround: true
     };
     enemies = [];
     bullets = [];
     particles = [];
-    drops = [];
     camX = -W / 2;
     time = 0;
     score = 0;
@@ -62,7 +95,7 @@
     // Keep most pressure on the right so the player mostly faces one way.
     if (Math.random() < 0.65) side = 1;
     return {
-      x: player.x + side * (W / 2 + 60), y: GY, vx: 0, hp: 3,
+      x: player.x + side * (W / 2 + 60), y: GY, vx: 0, hp: HP,
       walk: Math.random() * 6, aim: 0, range: rand(220, 380), rangeTimer: rand(2, 4),
       burst: 0, burstTimer: rand(0.8, 1.8), shotTimer: 0, flash: 0, dead: 0, fall: 0,
       speed: rand(60, 95), hit: 0
@@ -137,13 +170,22 @@
     var topSpeed = 190;
     p.vx += (move * topSpeed - p.vx) * Math.min(1, dt * 12);
     p.x += p.vx * dt;
-    if ((keys.w || keys[" "] || keys.arrowup) && p.onGround) {
-      p.vy = -620;
-      p.onGround = false;
-    }
+    var prevY = p.y;
     p.vy += GRAVITY * dt;
     p.y += p.vy * dt;
-    if (p.y >= GY) { p.y = GY; p.vy = 0; p.onGround = true; }
+    var landed = false;
+    if (p.y >= GY) { p.y = GY; landed = true; }
+    else if (p.vy >= 0 && !(keys.s || keys.arrowdown)) {
+      var plats = platformsBetween(p.x - 10, p.x + 10);
+      for (var i = 0; i < plats.length; i++) {
+        var pl = plats[i];
+        if (p.x >= pl.x - 4 && p.x <= pl.x + pl.w + 4 && prevY <= pl.y && p.y >= pl.y) {
+          p.y = pl.y; landed = true; break;
+        }
+      }
+    }
+    if (landed) { p.vy = 0; p.onGround = true; p.jumps = 0; }
+    else p.onGround = false;
     if (p.onGround) p.walk += Math.abs(p.vx) * dt * 0.06;
 
     // camera follows
@@ -213,8 +255,7 @@
             }
           }
         } else if (state === "playing" && hitFigure(p, b.x, b.y)) {
-          var dmg = 7;
-          p.hp -= dmg;
+          p.hp -= RIFLE.dmg * (hitFigure(p, b.x, b.y) === 2 ? RIFLE.headMult : 1);
           hurtFlash = 0.35;
           shake = Math.max(shake, 5);
           sparks(b.x, b.y, "#ff4d5e", 6);
@@ -226,17 +267,6 @@
     });
     if (state !== "playing") return;
     bullets = bullets.filter(function (b) { return b.life > 0 && Math.abs(b.x - p.x) < 1400; });
-
-    // pickups
-    drops.forEach(function (d) {
-      if (Math.abs(d.x - p.x) < 18 && p.hp < 100) {
-        p.hp = Math.min(100, p.hp + 25);
-        d.taken = true;
-        sparks(d.x, GY - 10, "#39ff88", 10);
-      }
-      d.life -= dt;
-    });
-    drops = drops.filter(function (d) { return !d.taken && d.life > 0; });
 
     // particles
     particles.forEach(function (pt) {
@@ -256,7 +286,6 @@
     kills++;
     score += headshot ? 150 : 100;
     scoreEl.textContent = score;
-    if (Math.random() < 0.15) drops.push({ x: e.x, life: 15 });
   }
 
   function updateEnemy(e, dt) {
@@ -562,16 +591,24 @@
     ctx.restore();
   }
 
-  function drawDrops() {
-    drops.forEach(function (d) {
-      var x = d.x - camX, y = GY - 14 + Math.sin(time * 4 + d.x) * 2;
-      ctx.strokeStyle = "#39ff88";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.rect(x - 8, y - 8, 16, 16);
-      line(x - 4, y, x + 4, y); line(x, y - 4, x, y + 4);
-      ctx.stroke();
+  function drawPlatforms() {
+    ctx.strokeStyle = "#8d9be0";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    platformsBetween(camX, camX + W).forEach(function (pl) {
+      var x = pl.x - camX;
+      line(x, pl.y, x + pl.w, pl.y);
     });
+    ctx.stroke();
+    ctx.strokeStyle = "#4a5688";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    platformsBetween(camX, camX + W).forEach(function (pl) {
+      var x = pl.x - camX;
+      line(x + 8, pl.y, x + 8, pl.y + 10); line(x + pl.w - 8, pl.y, x + pl.w - 8, pl.y + 10);
+      line(x + 8, pl.y + 10, x + pl.w - 8, pl.y + 10);
+    });
+    ctx.stroke();
   }
 
   function drawBullets() {
@@ -636,12 +673,16 @@
     // health
     ctx.strokeStyle = "#cfd8ff";
     ctx.lineWidth = 2;
-    ctx.strokeRect(14, 14, 160, 14);
-    ctx.fillStyle = player.hp > 30 ? "#39ff88" : "#ff4d5e";
-    ctx.fillRect(16, 16, 156 * player.hp / 100, 10);
+    for (var h = 0; h < HP; h++) {
+      ctx.strokeRect(14 + h * 54, 14, 48, 14);
+      if (h < player.hp) {
+        ctx.fillStyle = player.hp > 1 ? "#39ff88" : "#ff4d5e";
+        ctx.fillRect(16 + h * 54, 16, 44, 10);
+      }
+    }
     ctx.fillStyle = "#cfd8ff";
     ctx.textAlign = "left";
-    ctx.fillText("HP", 182, 14);
+    ctx.fillText("HP", 14 + HP * 54 + 4, 14);
     // ammo
     ctx.fillText(player.reloading > 0 ? "RELOADING" : "AMMO " + player.ammo + "/" + RIFLE.mag, 14, 36);
     // kills
@@ -665,7 +706,7 @@
     ctx.save();
     if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
     drawBackground();
-    drawDrops();
+    drawPlatforms();
     enemies.forEach(function (e) { if (e.dead) drawFigure(e, "#ff4d5e", false); });
     enemies.forEach(function (e) { if (!e.dead) drawFigure(e, "#ff4d5e", false); });
     drawFigure(player, "#39ff88", true);
@@ -746,11 +787,12 @@
 
   window.addEventListener("keydown", function (e) {
     var k = e.key.toLowerCase();
-    var handled = ["a", "d", "w", " ", "arrowleft", "arrowright", "arrowup", "r", "p"];
+    var handled = ["a", "d", "w", " ", "arrowleft", "arrowright", "arrowup", "arrowdown", "s", "r", "p"];
     if (handled.indexOf(k) < 0) return;
     if (k === " " || k.indexOf("arrow") === 0) e.preventDefault();
     keys[k] = true;
     if (e.repeat) return;
+    if ((k === "w" || k === " " || k === "arrowup") && state === "playing") tryJump();
     if (k === "r" && state === "playing") startReload();
     if (k === "p") {
       if (state === "playing") { state = "paused"; mouse.down = false; }
