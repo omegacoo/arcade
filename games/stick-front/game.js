@@ -591,8 +591,20 @@
     ctx.beginPath();
     var frontHand = { x: ox + ca * 17, y: oy + sa * 17 };
     var backHand = { x: ox + ca * 2, y: oy + sa * 2 + 2 };
-    line(x, shY + 1, frontHand.x, frontHand.y);
-    line(x, shY + 1, backHand.x, backHand.y);
+    // two-bone arms: elbows bend downward so the arms follow the rifle as it swings
+    function arm(hand) {
+      var sx = x, sy = shY + 1, seg = 13;
+      var dx = hand.x - sx, dy = hand.y - sy;
+      var d = Math.min(Math.sqrt(dx * dx + dy * dy), seg * 2 - 0.01) || 0.01;
+      var h = Math.sqrt(seg * seg - (d / 2) * (d / 2));
+      var nx = -dy / d, ny = dx / d;
+      if (ny < 0) { nx = -nx; ny = -ny; }
+      var ex = sx + dx / 2 + nx * h, ey = sy + dy / 2 + ny * h;
+      line(sx, sy, ex, ey);
+      line(ex, ey, hand.x, hand.y);
+    }
+    arm(frontHand);
+    arm(backHand);
     ctx.stroke();
 
     // muzzle flash
