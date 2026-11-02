@@ -5,5 +5,12 @@
     "description": "Hold the base. Aim with the mouse, shoot the stick army.",
     "thumb": "games/stick-front/thumb.svg",
     "path": "games/stick-front/"
+  },
+  {
+    "id": "untitled-quest",
+    "title": "Untitled Quest",
+    "description": "A retro RPG where you play the dark lord. Take on the heroes, one turn at a time.",
+    "thumb": "games/untitled-quest/thumb.svg",
+    "path": "games/untitled-quest/"
   }
 ]
