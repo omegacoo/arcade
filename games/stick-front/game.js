@@ -4,7 +4,17 @@
   var GY = 380; // ground line (y of feet)
   var GRAVITY = 1800;
   var HP = 3;         // player and enemies share the same health and damage model
-  var PLAT_CELL = 240; // platforms are generated per cell so the world scrolls forever
+
+  // The base: one fixed screen. Rooftops and tower decks are one-way surfaces you can
+  // jump up through and land on (S drops through). `top` is the y of the standing surface.
+  var STRUCTS = [
+    { type: "tower",   x: 24,  w: 56,  top: 200 },
+    { type: "wall",    x: 92,  w: 96,  top: 335 },
+    { type: "bunker",  x: 204, w: 116, top: 300 },
+    { type: "command", x: 480, w: 120, top: 290 },
+    { type: "wall",    x: 612, w: 96,  top: 335 },
+    { type: "tower",   x: 720, w: 56,  top: 200 }
+  ];
 
   // One rifle for everybody (first pass).
   var RIFLE = {
@@ -38,24 +48,23 @@
     return x - Math.floor(x);
   }
 
-  // One-way platforms: you can jump up through them and land on top.
-  function platformAt(c) {
-    if (hash(c + 101) < 0.3) return null;
-    var tall = hash(c + 57) > 0.5;
-    return {
-      x: c * PLAT_CELL + hash(c + 13) * 80,
-      y: tall ? GY - 150 : GY - 85,
-      w: 90 + hash(c + 29) * 80
-    };
-  }
-
-  function platformsBetween(x0, x1) {
-    var out = [];
-    for (var c = Math.floor(x0 / PLAT_CELL) - 1; c <= Math.floor(x1 / PLAT_CELL); c++) {
-      var pl = platformAt(c);
-      if (pl) out.push(pl);
+  // Gravity + landing on the ground or a structure top. Shared by the player and enemies.
+  function stepBody(f, dt, drop) {
+    var prevY = f.y;
+    f.vy += GRAVITY * dt;
+    f.y += f.vy * dt;
+    var landed = false;
+    if (f.y >= GY) { f.y = GY; landed = true; }
+    else if (f.vy >= 0 && !drop) {
+      for (var i = 0; i < STRUCTS.length; i++) {
+        var s = STRUCTS[i];
+        if (f.x >= s.x - 4 && f.x <= s.x + s.w + 4 && prevY <= s.top && f.y >= s.top) {
+          f.y = s.top; landed = true; break;
+        }
+      }
     }
-    return out;
+    if (landed) { f.vy = 0; f.onGround = true; f.jumps = 0; }
+    else f.onGround = false;
   }
 
   function tryJump() {
@@ -73,13 +82,13 @@
   // ---------- setup ----------
   function reset() {
     player = {
-      x: 0, y: GY, vx: 0, vy: 0, hp: HP, jumps: 0, ammo: RIFLE.mag, reloading: 0,
+      x: W / 2, y: GY, vx: 0, vy: 0, hp: HP, jumps: 0, ammo: RIFLE.mag, reloading: 0,
       cooldown: 0, walk: 0, aim: 0, recoil: 0, flash: 0, onGround: true
     };
     enemies = [];
     bullets = [];
     particles = [];
-    camX = -W / 2;
+    camX = 0; // the screen never scrolls
     time = 0;
     score = 0;
     kills = 0;
@@ -92,10 +101,11 @@
 
   function newEnemy() {
     var side = Math.random() < 0.5 ? -1 : 1;
-    // Keep most pressure on the right so the player mostly faces one way.
-    if (Math.random() < 0.65) side = 1;
+    // Some attackers head for a rooftop or tower deck and fight from up there.
+    var post = Math.random() < 0.45 ? STRUCTS[Math.floor(Math.random() * STRUCTS.length)] : null;
     return {
-      x: player.x + side * (W / 2 + 60), y: GY, vx: 0, hp: HP,
+      x: side < 0 ? -30 : W + 30, y: GY, vx: 0, vy: 0, hp: HP, onGround: true, jumps: 0,
+      post: post, tx: post ? rand(post.x + 14, post.x + post.w - 14) : 0,
       walk: Math.random() * 6, aim: 0, range: rand(220, 380), rangeTimer: rand(2, 4),
       burst: 0, burstTimer: rand(0.8, 1.8), shotTimer: 0, flash: 0, dead: 0, fall: 0,
       speed: rand(60, 95), hit: 0
@@ -169,27 +179,9 @@
     var move = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
     var topSpeed = 190;
     p.vx += (move * topSpeed - p.vx) * Math.min(1, dt * 12);
-    p.x += p.vx * dt;
-    var prevY = p.y;
-    p.vy += GRAVITY * dt;
-    p.y += p.vy * dt;
-    var landed = false;
-    if (p.y >= GY) { p.y = GY; landed = true; }
-    else if (p.vy >= 0 && !(keys.s || keys.arrowdown)) {
-      var plats = platformsBetween(p.x - 10, p.x + 10);
-      for (var i = 0; i < plats.length; i++) {
-        var pl = plats[i];
-        if (p.x >= pl.x - 4 && p.x <= pl.x + pl.w + 4 && prevY <= pl.y && p.y >= pl.y) {
-          p.y = pl.y; landed = true; break;
-        }
-      }
-    }
-    if (landed) { p.vy = 0; p.onGround = true; p.jumps = 0; }
-    else p.onGround = false;
+    p.x = clamp(p.x + p.vx * dt, 12, W - 12);
+    stepBody(p, dt, keys.s || keys.arrowdown);
     if (p.onGround) p.walk += Math.abs(p.vx) * dt * 0.06;
-
-    // camera follows
-    camX += (p.x - W / 2 - camX) * Math.min(1, dt * 6);
 
     // aiming
     var o = gunOrigin(p);
@@ -292,6 +284,8 @@
     if (e.dead) {
       e.dead += dt;
       e.fall = Math.min(1, e.dead / 0.35);
+      e.vx = 0;
+      stepBody(e, dt, false);
       return;
     }
     e.hit = Math.max(0, e.hit - dt);
@@ -299,15 +293,30 @@
     var dx = player.x - e.x;
     var dist = Math.abs(dx);
     var dir = dx >= 0 ? 1 : -1;
-
-    // keep a preferred range, wander it now and then
-    e.rangeTimer -= dt;
-    if (e.rangeTimer <= 0) { e.range = rand(220, 380); e.rangeTimer = rand(2, 4); }
     var want = 0;
-    if (dist > e.range + 30) want = dir;
-    else if (dist < e.range - 40) want = -dir;
+
+    if (e.post) {
+      // climb to the assigned rooftop and hold it
+      var s = e.post;
+      var onTop = e.onGround && Math.abs(e.y - s.top) < 1;
+      if (!onTop) {
+        var d = e.tx - e.x;
+        if (Math.abs(d) > 4) want = d > 0 ? 1 : -1;
+        if (Math.abs(d) < 30 && e.y > s.top + 1) {
+          if (e.onGround) { e.vy = -620; e.onGround = false; e.jumps = 1; }
+          else if (e.jumps === 1 && e.vy > -100 && e.y > s.top + 30) { e.vy = -620; e.jumps = 2; }
+        }
+      }
+    } else {
+      // keep a preferred range, wander it now and then
+      e.rangeTimer -= dt;
+      if (e.rangeTimer <= 0) { e.range = rand(220, 380); e.rangeTimer = rand(2, 4); }
+      if (dist > e.range + 30) want = dir;
+      else if (dist < e.range - 40) want = -dir;
+    }
     e.vx += (want * e.speed - e.vx) * Math.min(1, dt * 8);
-    e.x += e.vx * dt;
+    e.x = clamp(e.x + e.vx * dt, -60, W + 60);
+    stepBody(e, dt, false);
     e.walk += Math.abs(e.vx) * dt * 0.06;
 
     // aim at the player's chest
@@ -376,14 +385,6 @@
     }
     ctx.stroke();
 
-    // base buildings (parallax 0.5), one structure per 320px cell
-    var cell = 320, f = 0.5;
-    var first = Math.floor(camX * f / cell) - 1;
-    for (var c = first; c <= first + Math.ceil(W / cell) + 2; c++) {
-      var sx = c * cell - camX * f + 40 + hash(c + 9) * 80;
-      drawStructure(Math.floor(hash(c) * 6), sx, GY - 6);
-    }
-
     // perimeter fence (parallax 0.75)
     ctx.strokeStyle = "#4a5688";
     ctx.lineWidth = 1.5;
@@ -398,6 +399,8 @@
       line(px, GY - 36, px + post, GY - 8);
     }
     ctx.stroke();
+
+    drawBase();
 
     // ground
     ctx.strokeStyle = "#6a77b0";
@@ -415,56 +418,71 @@
     }
     ctx.stroke();
 
-    // foreground sandbags & crates (parallax 1.0, decorative)
-    var fc = 520;
-    var fs = Math.floor(camX / fc) - 1;
-    for (var m = fs; m <= fs + W / fc + 2; m++) {
-      var bx = m * fc - camX + hash(m + 40) * 200;
-      drawProp(Math.floor(hash(m + 7) * 3), bx, GY);
-    }
+    // props in the yard between the buildings
+    drawProp(1, 336, GY);
+    drawProp(2, 430, GY);
   }
 
-  function drawStructure(type, x, y) {
-    ctx.strokeStyle = "#5967a3";
+  function drawBase() {
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    if (type === 0) { // watchtower
-      line(x, y, x + 8, y - 70); line(x + 40, y, x + 32, y - 70);
-      line(x + 4, y - 20, x + 36, y - 20); line(x + 5, y - 45, x + 35, y - 45);
-      line(x + 4, y - 20, x + 36, y - 45); line(x + 36, y - 20, x + 4, y - 45);
-      line(x - 6, y - 70, x + 46, y - 70);
-      line(x - 6, y - 70, x - 6, y - 88); line(x + 46, y - 70, x + 46, y - 88);
-      line(x - 12, y - 88, x + 52, y - 88);
-      line(x + 20, y - 88, x + 20, y - 106); // antenna
-    } else if (type === 1) { // tent
-      line(x, y, x + 50, y - 46); line(x + 50, y - 46, x + 100, y);
-      line(x + 50, y - 46, x + 50, y); line(x + 36, y, x + 50, y - 22); line(x + 64, y, x + 50, y - 22);
-    } else if (type === 2) { // hangar
-      ctx.moveTo(x, y);
-      ctx.lineTo(x, y - 36);
-      ctx.quadraticCurveTo(x + 70, y - 90, x + 140, y - 36);
-      ctx.lineTo(x + 140, y);
-      line(x + 40, y, x + 40, y - 40); line(x + 100, y, x + 100, y - 40);
-      line(x + 40, y - 40, x + 100, y - 40);
-    } else if (type === 3) { // flag pole
-      line(x + 20, y, x + 20, y - 100);
-      ctx.moveTo(x + 20, y - 100);
-      ctx.lineTo(x + 54, y - 92); ctx.lineTo(x + 20, y - 80);
-      line(x - 20, y, x + 60, y); // base
-    } else if (type === 4) { // radar dish
-      line(x + 30, y, x + 30, y - 40);
-      ctx.moveTo(x + 6, y - 66);
-      ctx.quadraticCurveTo(x + 30, y - 30, x + 54, y - 66);
-      ctx.lineTo(x + 6, y - 66);
-      line(x + 30, y - 52, x + 44, y - 84);
-    } else { // barracks
-      line(x, y, x, y - 40); line(x, y - 40, x + 70, y - 40); line(x + 70, y - 40, x + 70, y);
-      line(x - 6, y - 40, x + 35, y - 58); line(x + 35, y - 58, x + 76, y - 40);
-      line(x + 10, y, x + 10, y - 24); line(x + 24, y - 24, x + 24, y);
-      line(x + 10, y - 24, x + 24, y - 24);
-      ctx.rect(x + 40, y - 30, 18, 14);
-    }
-    ctx.stroke();
+    STRUCTS.forEach(function (s) {
+      var x = s.x, w = s.w, t = s.top, h = GY - t;
+      ctx.strokeStyle = "#5967a3";
+      ctx.fillStyle = "#141836";
+      if (s.type === "tower") {
+        var y0 = t + 8;
+        var lx = function (y) { return x + 2 - 8 * (y - y0) / (GY - y0); };
+        var rx = function (y) { return x + w - 2 + 8 * (y - y0) / (GY - y0); };
+        ctx.beginPath();
+        line(x + 2, y0, lx(GY), GY); line(x + w - 2, y0, rx(GY), GY);
+        for (var k = 0; k <= 4; k++) {
+          var ya = y0 + (GY - y0) * k / 4, yb = y0 + (GY - y0) * (k + 1) / 4;
+          line(lx(ya), ya, rx(ya), ya);
+          if (k < 4) { line(lx(ya), ya, rx(yb), yb); line(rx(ya), ya, lx(yb), yb); }
+        }
+        ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        line(x - 8, t, x + w + 8, t);
+        ctx.stroke();
+        ctx.lineWidth = 2;
+        ctx.beginPath(); // railing and mast
+        line(x - 8, t, x - 8, t - 20); line(x + w + 8, t, x + w + 8, t - 20);
+        line(x - 8, t - 20, x + w + 8, t - 20);
+        line(x + w / 2, t - 20, x + w / 2, t - 46);
+        line(x + w / 2 - 8, t - 38, x + w / 2 + 8, t - 38);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.rect(x, t, w, h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        line(x - 4, t, x + w + 4, t);
+        ctx.stroke();
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (s.type === "wall") {
+          for (var r = 1; r * 15 < h; r++) {
+            line(x, t + r * 15, x + w, t + r * 15);
+            for (var c = (r % 2) * 16; c < w; c += 32) line(x + c, t + (r - 1) * 15, x + c, t + r * 15);
+          }
+        } else if (s.type === "bunker") {
+          line(x, t + 7, x + w, t + 7);
+          ctx.rect(x + 14, t + 16, 24, 8); ctx.rect(x + w - 38, t + 16, 24, 8);
+          ctx.rect(x + w / 2 - 12, GY - 38, 24, 38);
+          line(x + w / 2, GY - 38, x + w / 2, GY);
+        } else { // command post
+          line(x, t + 7, x + w, t + 7);
+          for (var i = 0; i < 3; i++) ctx.rect(x + 12 + i * 36, t + 18, 22, 16);
+          ctx.rect(x + w / 2 - 12, GY - 36, 24, 36);
+          line(x + w - 20, t, x + w - 20, t - 34); line(x + w - 28, t - 24, x + w - 12, t - 24);
+          line(x + w - 28, t - 34, x + w - 12, t - 34);
+        }
+        ctx.stroke();
+      }
+    });
   }
 
   function drawProp(type, x, y) {
@@ -591,26 +609,6 @@
     ctx.restore();
   }
 
-  function drawPlatforms() {
-    ctx.strokeStyle = "#8d9be0";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    platformsBetween(camX, camX + W).forEach(function (pl) {
-      var x = pl.x - camX;
-      line(x, pl.y, x + pl.w, pl.y);
-    });
-    ctx.stroke();
-    ctx.strokeStyle = "#4a5688";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    platformsBetween(camX, camX + W).forEach(function (pl) {
-      var x = pl.x - camX;
-      line(x + 8, pl.y, x + 8, pl.y + 10); line(x + pl.w - 8, pl.y, x + pl.w - 8, pl.y + 10);
-      line(x + 8, pl.y + 10, x + pl.w - 8, pl.y + 10);
-    });
-    ctx.stroke();
-  }
-
   function drawBullets() {
     ctx.lineWidth = 2;
     bullets.forEach(function (b) {
@@ -706,7 +704,6 @@
     ctx.save();
     if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
     drawBackground();
-    drawPlatforms();
     enemies.forEach(function (e) { if (e.dead) drawFigure(e, "#ff4d5e", false); });
     enemies.forEach(function (e) { if (!e.dead) drawFigure(e, "#ff4d5e", false); });
     drawFigure(player, "#39ff88", true);
