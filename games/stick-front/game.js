@@ -60,6 +60,9 @@
   var spawnTimer, shake, hurtFlash, lastTs, bloom;
   var grenades, bombers, rings, floaters, hitMark, slowmo, kcam;
   var streak, comboTimer, bomberTimer;
+  var marks, shells, debris, hitstop, comboPulse, lastHit;
+  var CORPSE_T = 4.5;   // seconds a body lies there before it is removed (it fades over the last 1.2)
+  var MAX_MARKS = 90;
 
   Scores.render(GAME_ID, scoresEl);
 
@@ -69,6 +72,115 @@
   function hash(n) {
     var x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
     return x - Math.floor(x);
+  }
+
+  // ---------- audio (all synthesised; starts on the first click) ----------
+  var AC = null, master = null, noiseBuf = null, muted = false;
+
+  function audioInit() {
+    if (AC) { if (AC.state === "suspended") AC.resume(); return; }
+    var Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return;
+    try { AC = new Ctor(); } catch (err) { AC = null; return; }
+    master = AC.createGain();
+    master.gain.value = muted ? 0 : 0.5;
+    master.connect(AC.destination);
+    noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+
+  function setMuted(m) {
+    muted = m;
+    if (master) master.gain.value = m ? 0 : 0.5;
+  }
+
+  // A pitched blip that slides from f0 to f1.
+  function tone(f0, f1, dur, vol, type, delay) {
+    if (!AC || muted) return;
+    var t = AC.currentTime + (delay || 0);
+    var o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || "square";
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+
+  // A burst of filtered noise; the filter sweeps from f0 to f1.
+  function noise(dur, vol, f0, f1, type, delay) {
+    if (!AC || muted) return;
+    var t = AC.currentTime + (delay || 0);
+    var s = AC.createBufferSource(), fl = AC.createBiquadFilter(), g = AC.createGain();
+    s.buffer = noiseBuf;
+    fl.type = type || "lowpass";
+    fl.frequency.setValueAtTime(f0, t);
+    fl.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(fl); fl.connect(g); g.connect(master);
+    s.start(t); s.stop(t + dur + 0.02);
+  }
+
+  var sfx = {
+    shot: function (mine) {
+      var v = mine ? 0.32 : 0.14;
+      noise(0.09, v, 3200, 500, "bandpass");
+      tone(mine ? 190 : 150, 55, 0.08, v * 0.8, "square");
+    },
+    snipe: function () { noise(0.35, 0.4, 2400, 200, "bandpass"); tone(120, 35, 0.3, 0.35, "sawtooth"); },
+    hit: function (head) {
+      if (head) { tone(1500, 1000, 0.07, 0.22, "square"); tone(2200, 1500, 0.05, 0.12, "triangle", 0.03); }
+      else tone(520, 300, 0.05, 0.16, "square");
+      noise(0.06, 0.12, 1200, 300, "bandpass");
+    },
+    kill: function (head) {
+      noise(0.28, 0.3, 900, 120, "lowpass");
+      tone(head ? 300 : 220, 60, 0.3, 0.25, "sawtooth");
+    },
+    boom: function (r) {
+      var v = clamp(r / 90, 0.35, 1);
+      noise(0.6, 0.55 * v, 1400, 70, "lowpass");
+      tone(100, 28, 0.5, 0.5 * v, "sine");
+    },
+    hurt: function () { tone(260, 70, 0.25, 0.35, "sawtooth"); noise(0.15, 0.2, 800, 150, "lowpass"); },
+    whiz: function () { noise(0.14, 0.1, 3800, 1200, "bandpass"); },
+    reload: function () {
+      tone(900, 500, 0.04, 0.12, "square");
+      tone(700, 400, 0.05, 0.14, "square", 0.55);
+      tone(1100, 600, 0.04, 0.12, "square", 1.35);
+    },
+    jump: function () { tone(220, 440, 0.1, 0.07, "triangle"); }
+  };
+
+  // ---------- decals, shells, debris ----------
+  // Where a falling point lands: the ground, or the top of a structure it drops onto.
+  function floorHit(x, prevY, y) {
+    if (y >= GY) return GY;
+    for (var i = 0; i < STRUCTS.length; i++) {
+      var s = STRUCTS[i];
+      if (x >= s.x - 4 && x <= s.x + s.w + 4 && prevY <= s.top && y >= s.top) return s.top;
+    }
+    return null;
+  }
+
+  // Flat ellipse stain on the ground (blood, scorch, bullet pit).
+  function addMark(x, w, h, rgb, a, life) {
+    marks.push({ x: x, y: GY + rand(3, 20), w: w, h: h, rgb: rgb, a: a, life: life, max: life });
+    if (marks.length > MAX_MARKS) marks.shift();
+  }
+
+  // Spray of blood along (dx, dy).
+  function blood(x, y, dx, dy, n, spd) {
+    for (var i = 0; i < n; i++) {
+      var a = Math.atan2(dy, dx) + rand(-0.6, 0.6), s = rand(0.3, 1) * spd;
+      particles.push({
+        x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30, life: rand(0.4, 0.8), max: 0.8,
+        color: Math.random() < 0.5 ? "#d4142e" : "#8f0c20", len: 3, grav: true, blood: true
+      });
+    }
   }
 
   // Gravity + landing on the ground or a structure top. Shared by the player and enemies.
@@ -93,12 +205,13 @@
 
   function tryJump() {
     var p = player;
-    if (p.onGround) { p.vy = -620; p.onGround = false; p.jumps = 1; }
+    if (p.onGround) { p.vy = -620; p.onGround = false; p.jumps = 1; sfx.jump(); }
     else {
       if (p.jumps === 0) p.jumps = 1; // walked off a ledge: the air jump is still the second one
       if (p.jumps < 2) {
         p.vy = -620; p.jumps = 2;
         sparks(p.x, p.y, "#2de2ff", 6);
+        sfx.jump();
       }
     }
   }
@@ -130,6 +243,12 @@
     streak = 0;
     comboTimer = 0;
     bomberTimer = 35;
+    marks = [];
+    shells = [];
+    debris = [];
+    hitstop = 0;
+    comboPulse = 0;
+    lastHit = { dx: 0, dy: -1 };
     scoreEl.textContent = 0;
   }
 
@@ -143,8 +262,10 @@
   function hurtPlayer(n) {
     player.hp -= n;
     hurtFlash = 0.35;
-    shake = Math.max(shake, 5);
+    shake = Math.max(shake, 4 + n * 3); // heavy hits kick harder
     streak = 0;
+    sfx.hurt();
+    blood(player.x, player.y - 36, lastHit.dx, lastHit.dy, 6 + n * 3, 160);
     if (player.hp <= 0) { player.hp = 0; gameOver(); return true; }
     return false;
   }
@@ -154,8 +275,14 @@
     sparks(x, y, "#ffb347", 18);
     sparks(x, y, "#ff4d5e", 8);
     shake = Math.max(shake, 7);
+    sfx.boom(r);
+    if (y > GY - 40) addMark(x, r * 0.55, r * 0.09, "20,16,28", 0.55, 28);
     var dx = player.x - x, dy = (player.y - 26) - y;
-    if (dx * dx + dy * dy < r * r) hurtPlayer(1);
+    if (dx * dx + dy * dy < r * r) {
+      var dl = Math.sqrt(dx * dx + dy * dy) || 1;
+      lastHit = { dx: dx / dl, dy: Math.min(-0.3, dy / dl) };
+      hurtPlayer(1);
+    }
   }
 
   // ---------- day / dusk / night ----------
@@ -243,6 +370,7 @@
       x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
       owner: owner, life: 1.4, dmg: (opts && opts.dmg) || 1, heavy: !!(opts && opts.dmg)
     });
+    if (opts && opts.dmg) sfx.snipe(); else sfx.shot(owner === "player");
     for (var i = 0; i < 3; i++) {
       particles.push({
         x: x, y: y, vx: Math.cos(a) * rand(60, 200) + rand(-40, 40), vy: Math.sin(a) * rand(60, 200) + rand(-40, 40),
@@ -264,16 +392,18 @@
     player.flash = 0.05;
     bloom = Math.min(1, bloom + 0.12);
     shake = Math.max(shake, 1.5);
-    // shell casing
-    particles.push({
+    // shell casing: bounces and stays on the ground
+    shells.push({
       x: o.x, y: o.y, vx: -Math.cos(player.aim) * rand(20, 60) + rand(-20, 20), vy: rand(-140, -60),
-      life: 0.5, max: 0.5, color: "#c9b36b", len: 3, grav: true
+      a: rand(0, 6), va: rand(-18, 18), life: 12
     });
+    if (shells.length > 70) shells.shift();
   }
 
   function startReload() {
     if (player.reloading > 0 || player.ammo === RIFLE.mag) return;
     player.reloading = RIFLE.reload;
+    sfx.reload();
   }
 
   // ---------- hit tests ----------
@@ -393,7 +523,7 @@
 
     // enemies
     enemies.forEach(function (e) { updateEnemy(e, dt); });
-    enemies = enemies.filter(function (e) { return e.dead < 1.6; });
+    enemies = enemies.filter(function (e) { return e.dead < CORPSE_T; });
 
     // bullets (swept in small steps so fast shots can't tunnel)
     bullets.forEach(function (b) {
@@ -408,8 +538,11 @@
           for (var i = 0; i < 4; i++) {
             particles.push({ x: b.x, y: GY, vx: rand(-60, 60), vy: rand(-120, -30), life: 0.35, max: 0.35, color: "#8a7a5a", len: 2, grav: true });
           }
+          addMark(b.x, 3, 1.2, "20,16,28", 0.5, 10);
           break;
         }
+        var bsp = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1;
+        var bdx = b.vx / bsp, bdy = b.vy / bsp;
         if (b.owner === "player") {
           for (var j = 0; j < enemies.length; j++) {
             var e = enemies[j];
@@ -418,9 +551,12 @@
             if (part) {
               e.hp -= RIFLE.dmg * (part === 2 ? RIFLE.headMult : 1);
               e.hit = 0.1;
-              sparks(b.x, b.y, "#ff4d5e", part === 2 ? 10 : 5);
+              sparks(b.x, b.y, "#ffffff", 3);
+              blood(b.x, b.y, bdx, bdy, part === 2 ? 12 : 6, part === 2 ? 260 : 190);
+              rings.push({ x: b.x, y: b.y, r: 14, life: 0.12, max: 0.12 });
+              sfx.hit(part === 2);
               b.life = 0;
-              if (e.hp <= 0) killEnemy(e, part === 2);
+              if (e.hp <= 0) killEnemy(e, part === 2, { x: b.x, y: b.y, dx: bdx, dy: bdy });
               hitMark = { life: 0.18, max: 0.18, head: part === 2, kill: e.hp <= 0 };
               break;
             }
@@ -431,6 +567,8 @@
               if (Math.abs(b.x - bm.x) < 30 && Math.abs(b.y - bm.y) < 14) {
                 bm.hp--; bm.hit = 0.1; b.life = 0;
                 sparks(b.x, b.y, "#ffb347", 5);
+                rings.push({ x: b.x, y: b.y, r: 14, life: 0.12, max: 0.12 });
+                sfx.hit(false);
                 hitMark = { life: 0.18, max: 0.18, head: false, kill: bm.hp <= 0 };
                 if (bm.hp <= 0) killBomber(bm);
                 break;
@@ -442,8 +580,18 @@
           if (hp2) {
             var dmg = b.heavy ? b.dmg : b.dmg * (hp2 === 2 ? RIFLE.headMult : 1);
             sparks(b.x, b.y, "#ff4d5e", 6);
+            rings.push({ x: b.x, y: b.y, r: 16, life: 0.12, max: 0.12 });
+            lastHit = { dx: bdx, dy: bdy };
             b.life = 0;
             if (hurtPlayer(dmg)) return;
+          } else if (!b.near) {
+            // close call: a crack past the ear
+            var ndx = b.x - p.x, ndy = b.y - (p.y - 30);
+            if (ndx * ndx + ndy * ndy < 28 * 28) {
+              b.near = true;
+              sfx.whiz();
+              sparks(b.x, b.y, "#ffffff", 2);
+            }
           }
         }
         if (b.life <= 0) break;
@@ -461,17 +609,62 @@
     rings.forEach(function (r) { r.life -= dt; });
     rings = rings.filter(function (r) { return r.life > 0; });
 
-    // particles
+    stepDecor(dt);
+
+    shake = Math.max(0, shake - dt * 20);
+    hurtFlash = Math.max(0, hurtFlash - dt);
+  }
+
+  // Particles, shell casings, ground marks and falling debris: purely cosmetic, so they keep
+  // ticking behind the game-over card too.
+  function stepDecor(dt) {
     particles.forEach(function (pt) {
       pt.life -= dt;
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
-      if (pt.grav) { pt.vy += 700 * dt; if (pt.y > GY) { pt.y = GY; pt.vy = 0; pt.vx *= 0.5; } }
+      if (pt.grav) {
+        pt.vy += 700 * dt;
+        if (pt.y > GY) {
+          pt.y = GY; pt.vy = 0; pt.vx *= 0.5;
+          if (pt.blood) {
+            pt.life = 0;
+            if (Math.random() < 0.45) addMark(pt.x, rand(2, 5), rand(0.8, 1.6), "150,12,32", 0.7, 30);
+          }
+        }
+      }
     });
     particles = particles.filter(function (pt) { return pt.life > 0; });
 
-    shake = Math.max(0, shake - dt * 20);
-    hurtFlash = Math.max(0, hurtFlash - dt);
+    shells.forEach(function (s) {
+      s.life -= dt;
+      if (s.rest) return;
+      var py = s.y;
+      s.vy += 900 * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.a += s.va * dt;
+      var fl = floorHit(s.x, py, s.y);
+      if (fl !== null) {
+        s.y = fl;
+        if (Math.abs(s.vy) > 90) { s.vy *= -0.35; s.vx *= 0.6; s.va *= 0.5; }
+        else { s.rest = true; s.a = rand(-0.4, 0.4); }
+      }
+    });
+    shells = shells.filter(function (s) { return s.life > 0; });
+
+    marks.forEach(function (m) { m.life -= dt; });
+    marks = marks.filter(function (m) { return m.life > 0; });
+
+    debris.forEach(function (d) {
+      d.life -= dt;
+      d.t += dt;
+      d.y += d.vy * dt;
+      d.x += Math.sin(d.t * 3) * 22 * dt + d.vx * dt;
+      d.tilt = Math.sin(d.t * 3) * 0.35;
+    });
+    debris = debris.filter(function (d) { return d.life > 0 && d.y < GY + 40; });
+
+    comboPulse = Math.max(0, comboPulse - dt * 4);
   }
 
   function addScore(base, mult) {
@@ -481,10 +674,23 @@
     return pts;
   }
 
-  function killEnemy(e, headshot) {
+  function killEnemy(e, headshot, ib) {
     e.dead = 0.001;
+    if (e.chute) {
+      // the canopy comes loose and drifts down on its own
+      debris.push({ x: e.x, y: e.y - 100, vx: rand(-12, 12), vy: 55, t: 0, life: 8, tilt: 0, color: e.color });
+    }
     e.chute = false;
     e.locked = false;
+    e.flash = 0;
+    hitstop = headshot ? 0.07 : 0.04;
+    comboPulse = 1;
+    shake = Math.max(shake, headshot ? 3.5 : 2);
+    sfx.kill(headshot);
+    e.impact = { x: ib.x, y: ib.y, dx: ib.dx, dy: ib.dy, head: headshot, force: headshot ? 170 : 270 };
+    // heavies buckle to their knees for a beat before they go down
+    if (e.type === "heavy" && !headshot) e.stagger = 0.35;
+    else startRagdoll(e);
     kills++;
     streak += headshot ? 2 : 1;
     comboTimer = COMBO_WINDOW;
@@ -509,14 +715,174 @@
     sparks(b.x, b.y, "#ffb347", 24);
     sparks(b.x, b.y, "#ff4d5e", 12);
     shake = Math.max(shake, 6);
+    hitstop = 0.06;
+    comboPulse = 1;
+    sfx.boom(70);
+  }
+
+  // ---------- ragdolls ----------
+  // A dead figure becomes a small verlet skeleton: points joined by fixed-length sticks that
+  // tumble, bounce off the ground and decks, and settle where they land.
+  var HEAD = 0, SH = 1, HIP = 2, FL = 3, FR = 4, EF = 5, HF = 6, EB = 7, HB = 8, RT = 9, RF = 10;
+  var BONES = [
+    [HEAD, SH], [SH, HIP], [HEAD, HIP], [HIP, FL], [HIP, FR],
+    [SH, EF], [EF, HF], [SH, EB], [EB, HB], [RT, RF], [HF, RF], [HB, RT]
+  ];
+
+  // Elbow position for a two-bone arm, same solution drawFigure uses.
+  function elbowPos(sx, sy, hand) {
+    var seg = 14, dx = hand.x - sx, dy = hand.y - sy;
+    var d = Math.min(Math.sqrt(dx * dx + dy * dy), seg * 2 - 0.01) || 0.01;
+    var h = Math.sqrt(seg * seg - (d / 2) * (d / 2));
+    var nx = -dy / d, ny = dx / d;
+    if (ny < 0) { nx = -nx; ny = -ny; }
+    return { x: sx + dx / 2 + nx * h, y: sy + dy / 2 + ny * h };
+  }
+
+  function makeRagdoll(f, imp) {
+    var x = f.x, y = f.y, sc = f.sc || 1, kn = f.kneel || 0;
+    var aim = f.aim || 0, ca = Math.cos(aim), sa = Math.sin(aim);
+    function pt(px, py) { return { x: x + (px - x) * sc, y: y + (py - y) * sc, ox: 0, oy: 0, vx: 0, vy: 0 }; }
+    var shY = y - 44 + kn * 18, ox = x, oy = shY + 4;
+    var hF = { x: ox + ca * 22, y: oy + sa * 22 }, hB = { x: ox + ca * 11, y: oy + sa * 11 + 1 };
+    var eF = elbowPos(x, shY + 1, hF), eB = elbowPos(x, shY + 1, hB);
+    var P = [
+      pt(x, y - 53 + kn * 18), pt(x, shY), pt(x, y - 22 + kn * 6), pt(x - 6, y), pt(x + 7, y),
+      pt(eF.x, eF.y), pt(hF.x, hF.y), pt(eB.x, eB.y), pt(hB.x, hB.y),
+      pt(ox - ca * 2, oy - sa * 2), pt(ox + ca * 28, oy + sa * 28)
+    ];
+    var S = [];
+    BONES.forEach(function (b) {
+      var dx = P[b[0]].x - P[b[1]].x, dy = P[b[0]].y - P[b[1]].y, len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0.5) S.push([b[0], b[1], len]);
+    });
+
+    var hx = imp.x !== undefined ? imp.x : x, hy = imp.y !== undefined ? imp.y : y - 30 * sc;
+    var bvx = (f.vx || 0) * 0.6, bvy = clamp(f.vy || 0, -300, 200);
+    P.forEach(function (p, i) {
+      var d = Math.sqrt((p.x - hx) * (p.x - hx) + (p.y - hy) * (p.y - hy));
+      var w = clamp(1.25 - d / 80, 0.3, 1) * (i >= RT ? 0.7 : 1);
+      p.vx = bvx + imp.dx * imp.force * w + rand(-35, 35);
+      p.vy = bvy + imp.dy * imp.force * w - 110 * w + rand(-35, 35);
+    });
+
+    var r = { p: P, s: S, headOff: false, headA: 0, headSpin: 0, bleed: 0, t: 0, pooled: false };
+    if (imp.head) {
+      // the head comes clean off, spinning, with blood fountaining from the neck
+      r.headOff = true;
+      r.s = S.filter(function (s) { return s[0] !== HEAD && s[1] !== HEAD; });
+      P[HEAD].vx = imp.dx * 380 + rand(-60, 60);
+      P[HEAD].vy = imp.dy * 200 - 420 + rand(-60, 40);
+      r.headSpin = rand(10, 18) * (Math.random() < 0.5 ? -1 : 1);
+      r.headA = 0;
+      r.bleed = 1;
+      blood(P[HEAD].x, P[HEAD].y, imp.dx, -1, 16, 330);
+    }
+    return r;
+  }
+
+  function startRagdoll(f) {
+    f.rag = makeRagdoll(f, f.impact || { dx: 0, dy: -1, force: 200, head: false });
+  }
+
+  function stepRagdoll(f, dt) {
+    var r = f.rag;
+    if (!r || dt <= 0) return;
+    var P = r.p, i, k;
+    r.t += dt;
+    for (i = 0; i < P.length; i++) {
+      var p = P[i];
+      p.ox = p.x; p.oy = p.y; p.fl = false;
+      p.vy += GRAVITY * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+    for (k = 0; k < 5; k++) {
+      for (i = 0; i < r.s.length; i++) {
+        var s = r.s[i], a = P[s[0]], b = P[s[1]];
+        var dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+        var df = (d - s[2]) / d * 0.5;
+        a.x += dx * df; a.y += dy * df;
+        b.x -= dx * df; b.y -= dy * df;
+      }
+      for (i = 0; i < P.length; i++) {
+        var fl = floorHit(P[i].x, P[i].oy, P[i].y);
+        if (fl !== null) { P[i].y = fl; P[i].fl = true; }
+      }
+    }
+    var fric = Math.max(0, 1 - 12 * dt);
+    for (i = 0; i < P.length; i++) {
+      var q = P[i];
+      if (q.fl) {
+        q.vx = (q.x - q.ox) / dt * fric;
+        q.vy = q.vy > 250 ? -q.vy * 0.3 : 0;
+      } else {
+        q.vx = (q.x - q.ox) / dt * 0.998;
+        q.vy = (q.y - q.oy) / dt;
+      }
+    }
+    if (r.headOff) {
+      r.headA += r.headSpin * dt;
+      if (P[HEAD].fl) r.headSpin *= fric;
+    }
+    if (r.bleed > 0) {
+      r.bleed -= dt;
+      var src = P[SH];
+      blood(src.x, src.y, rand(-0.3, 0.3), -1, 2, 170 * clamp(r.bleed, 0.3, 1));
+      if (r.headOff) blood(P[HEAD].x, P[HEAD].y, -P[HEAD].vx * 0.01, -P[HEAD].vy * 0.01, 1, 60);
+    }
+    if (!r.pooled && r.t > 1) {
+      r.pooled = true;
+      addMark(P[HIP].x, 15 * (f.sc || 1), 3.5, "150,12,32", 0.65, 32);
+    }
+  }
+
+  function drawRagdoll(f, color) {
+    var r = f.rag, P = r.p, sc = f.sc || 1;
+    var fade = f === player ? 1 : clamp((CORPSE_T - f.dead) / 1.2, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = f.hit > 0 ? "#ffffff" : color;
+    ctx.lineWidth = 3 * sc;
+    ctx.beginPath();
+    [[SH, HIP], [HIP, FL], [HIP, FR], [SH, EF], [EF, HF], [SH, EB], [EB, HB]].forEach(function (b) {
+      line(P[b[0]].x - camX, P[b[0]].y, P[b[1]].x - camX, P[b[1]].y);
+    });
+    ctx.stroke();
+    ctx.lineWidth = 3.5 * sc;
+    ctx.beginPath();
+    line(P[RT].x - camX, P[RT].y, P[RF].x - camX, P[RF].y);
+    ctx.stroke();
+    // head + helmet, tilting with the spine (or tumbling on its own once knocked off)
+    var hd = P[HEAD];
+    var ang = r.headOff ? r.headA : Math.atan2(hd.y - P[SH].y, hd.x - P[SH].x) + Math.PI / 2;
+    ctx.lineWidth = 3 * sc;
+    ctx.save();
+    ctx.translate(hd.x - camX, hd.y);
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.arc(0, 0, 7 * sc, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, -sc, 8.5 * sc, Math.PI, 0);
+    ctx.stroke();
+    ctx.restore();
+    ctx.restore();
   }
 
   function updateEnemy(e, dt) {
     if (e.dead) {
       e.dead += dt;
-      e.fall = Math.min(1, e.dead / 0.35);
+      e.hit = Math.max(0, e.hit - dt);
+      if (e.rag) { stepRagdoll(e, dt); return; }
+      // still on its feet for a moment (heavy buckling) before collapsing
       e.vx = 0;
       stepBody(e, dt, false);
+      e.kneel = Math.min(1, (e.kneel || 0) + dt * 4);
+      e.stagger -= dt;
+      if (e.stagger <= 0) startRagdoll(e);
       return;
     }
     e.hit = Math.max(0, e.hit - dt);
@@ -556,6 +922,10 @@
     // runners are suicide rushers
     if (e.type === "runner" && Math.abs(player.x - e.x) < 20 && Math.abs(player.y - e.y) < 40) {
       e.dead = 0.001;
+      e.flash = 0;
+      e.impact = { dx: rand(-0.7, 0.7), dy: -0.8, force: 520, head: false };
+      startRagdoll(e);
+      blood(e.x, e.y - 30, 0, -1, 20, 280);
       explode(e.x, e.y - 20, 36);
       return;
     }
@@ -621,6 +991,12 @@
   function gameOver() {
     state = "over";
     mouse.down = false;
+    // the player goes down too
+    player.dead = 0.001;
+    player.flash = 0;
+    player.rag = makeRagdoll(player, {
+      x: player.x, y: player.y - 36, dx: lastHit.dx, dy: lastHit.dy, force: 300, head: false
+    });
     Scores.add(GAME_ID, score);
     Scores.render(GAME_ID, scoresEl);
   }
@@ -869,17 +1245,15 @@
       ctx.translate(-x, -y);
     }
 
-    var alive = !f.dead;
-    if (!alive) {
-      // topple backwards from the feet and fade out
-      ctx.globalAlpha = clamp(1 - (f.dead - 0.8) / 0.8, 0, 1);
-      var tip = (Math.cos(f.aim) >= 0 ? -1 : 1);
+    if (f.dead) {
+      // buckling: lean back as the knees give out (the ragdoll takes over after this)
+      var lean = Math.min(1, f.kneel || 0);
       ctx.translate(x, y);
-      ctx.rotate(tip * f.fall * (Math.PI / 2) * 0.95);
+      ctx.rotate((Math.cos(f.aim) >= 0 ? -1 : 1) * lean * 0.35);
       ctx.translate(-x, -y);
     }
 
-    if (f.chute && alive) {
+    if (f.chute) {
       // canopy with rigging down to the shoulders
       var cy = y - 100;
       ctx.beginPath();
@@ -903,9 +1277,7 @@
 
     // legs
     ctx.beginPath();
-    if (!alive) {
-      line(x, hipY, x - 6, y); line(x, hipY, x + 7, y);
-    } else if (air) {
+    if (air) {
       line(x, hipY, x - 9, y - 6); line(x, hipY, x + 8, y - 2);
     } else if (kn > 0.3) {
       // one knee up, one knee down
@@ -1089,18 +1461,25 @@
       ctx.fillStyle = gr;
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     }
-    if (n <= 0.05) return;
+    // strongest after dark, but there is always a little bloom from flashes and blasts
+    var k = 0.22 + 0.78 * n;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     var figs = enemies.concat([player]);
     figs.forEach(function (f) {
       if (f.dead || !(f.flash > 0)) return;
       var o = gunOrigin(f), sc = f.sc || 1;
-      glow(o.x - camX + Math.cos(f.aim) * RIFLE.muzzle * sc, o.y + Math.sin(f.aim) * RIFLE.muzzle * sc, 130, 0.55 * n, "255,216,74");
+      glow(o.x - camX + Math.cos(f.aim) * RIFLE.muzzle * sc, o.y + Math.sin(f.aim) * RIFLE.muzzle * sc, 130, 0.55 * k, "255,216,74");
     });
     rings.forEach(function (r) {
-      glow(r.x - camX, r.y, r.r * 2.4, 0.5 * (r.life / r.max) * n, "255,140,60");
+      glow(r.x - camX, r.y, r.r * 2.4, 0.5 * (r.life / r.max) * k, "255,140,60");
     });
+    // bullets carry a small light of their own at night
+    if (n > 0.3) {
+      bullets.forEach(function (b) {
+        glow(b.x - camX, b.y, b.heavy ? 40 : 26, 0.35 * n, b.owner === "player" ? "255,216,74" : "255,60,90");
+      });
+    }
     ctx.restore();
   }
 
@@ -1117,26 +1496,116 @@
       line(mouse.x + d[0] * r0, mouse.y + d[1] * r0, mouse.x + d[0] * r1, mouse.y + d[1] * r1);
     });
     ctx.stroke();
+    if (hitMark.head && !hitMark.kill) {
+      // headshots get an extra ring so they read differently from body hits
+      ctx.beginPath();
+      ctx.arc(mouse.x, mouse.y, r1 + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
+  // Tracers: a dark halo (so they show up against the bright sky), a coloured glow, and a white-hot core.
   function drawBullets() {
-    ctx.lineWidth = 2;
+    ctx.save();
+    ctx.lineCap = "round";
     bullets.forEach(function (b) {
-      var len = 14, sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-      ctx.strokeStyle = b.owner === "player" ? "#ffe066" : "#ff7a5c";
+      var sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1, ux = b.vx / sp, uy = b.vy / sp;
+      var mine = b.owner === "player";
+      var len = b.heavy ? 95 : mine ? 46 : 36;
+      var rgb = b.heavy ? "255,77,210" : mine ? "255,190,20" : "255,40,70";
+      var x = b.x - camX, y = b.y;
+      function trail(width, color0, color1, l) {
+        var gx = x - ux * len * l, gy = y - uy * len * l;
+        var gr = ctx.createLinearGradient(x, y, gx, gy);
+        gr.addColorStop(0, color0);
+        gr.addColorStop(1, color1);
+        ctx.strokeStyle = gr;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        line(x, y, gx, gy);
+        ctx.stroke();
+      }
+      trail(b.heavy ? 12 : 9, "rgba(5,6,20,0.55)", "rgba(5,6,20,0)", 1);
+      trail(b.heavy ? 8 : 6, "rgba(" + rgb + ",1)", "rgba(" + rgb + ",0)", 1);
+      trail(b.heavy ? 4 : 3, "rgba(255,255,255,1)", "rgba(255,255,255,0)", 0.7);
+      ctx.fillStyle = "#ffffff";
       ctx.beginPath();
-      line(b.x - camX, b.y, b.x - camX - b.vx / sp * len, b.y - b.vy / sp * len);
-      ctx.stroke();
+      ctx.arc(x, y, b.heavy ? 4 : 3.2, 0, Math.PI * 2);
+      ctx.fill();
     });
+    ctx.restore();
     particles.forEach(function (pt) {
       ctx.globalAlpha = clamp(pt.life / pt.max, 0, 1);
       ctx.strokeStyle = pt.color;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = pt.blood ? 2.5 : 2;
       ctx.beginPath();
       line(pt.x - camX, pt.y, pt.x - camX + pt.vx * 0.02 + 1, pt.y + pt.vy * 0.02);
       ctx.stroke();
     });
+    ctx.globalAlpha = 1;
+  }
+
+  // Blood, scorch marks and bullet pits on the ground, plus shell casings that stay where they land.
+  function drawGroundLitter() {
+    marks.forEach(function (m) {
+      ctx.fillStyle = "rgba(" + m.rgb + "," + (m.a * clamp(m.life / 3, 0, 1)) + ")";
+      ctx.beginPath();
+      ctx.ellipse(m.x - camX, m.y, m.w, m.h, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#c9b36b";
+    shells.forEach(function (s) {
+      ctx.globalAlpha = clamp(s.life / 2, 0, 1);
+      var cx = Math.cos(s.a) * 1.8, cy = Math.sin(s.a) * 1.8;
+      ctx.beginPath();
+      line(s.x - camX - cx, s.y - 1 - cy, s.x - camX + cx, s.y - 1 + cy);
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // Loose parachute canopies drifting down from paratroopers that were shot.
+  function drawDebris() {
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    debris.forEach(function (d) {
+      var x = d.x - camX;
+      ctx.globalAlpha = clamp(d.life / 1.5, 0, 1);
+      ctx.strokeStyle = d.color;
+      ctx.save();
+      ctx.translate(x, d.y);
+      ctx.rotate(d.tilt);
+      ctx.beginPath();
+      ctx.arc(0, 0, 26, Math.PI, 0);
+      line(-26, 0, 26, 0);
+      line(-9, -24, -9, 0);
+      line(9, -24, 9, 0);
+      ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      line(-26, 0, -6, 38); line(26, 0, 8, 30); line(-9, 0, -2, 44); line(9, 0, 12, 36);
+      ctx.stroke();
+      ctx.restore();
+      ctx.lineWidth = 3;
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // Dust by day, rising embers after dark.
+  function drawMotes() {
+    var n = nightAmt();
+    ctx.fillStyle = sky3("#ffffff", "#ffd9a0", "#ff9a4a");
+    for (var i = 0; i < 34; i++) {
+      var sp = 6 + hash(i + 70) * 14;
+      var x = (hash(i + 20) * W + time * sp * (hash(i + 90) < 0.5 ? 1 : -1) * 0.7 + W * 4) % W;
+      var rise = n * time * (8 + hash(i + 40) * 10);
+      var y = (GY - 20 - hash(i + 5) * 420 - rise + 3000 * H) % (GY - 20);
+      ctx.globalAlpha = (0.12 + hash(i + 30) * 0.2) * (0.6 + 0.4 * Math.sin(time * 1.5 + i));
+      ctx.fillRect(x, y, 2, 2);
+    }
     ctx.globalAlpha = 1;
   }
 
@@ -1204,14 +1673,15 @@
     // combo multiplier
     if (streak > 0) {
       var m = comboMult();
+      var fs = 17 + m * 2 + Math.round(comboPulse * 6); // pops on each kill
       ctx.textAlign = "center";
-      ctx.fillStyle = m > 1 ? "#ffd84a" : "#cfd8ff";
-      ctx.font = "bold " + (17 + m * 2) + "px 'Courier New', monospace";
+      ctx.fillStyle = comboPulse > 0.4 ? "#ffffff" : m > 1 ? "#ffd84a" : "#cfd8ff";
+      ctx.font = "bold " + fs + "px 'Courier New', monospace";
       ctx.fillText("COMBO x" + m + "  (" + streak + ")", W / 2, 14);
       ctx.fillStyle = "rgba(207,216,255,0.25)";
-      ctx.fillRect(W / 2 - 60, 14 + 17 + m * 2 + 4, 120, 4);
+      ctx.fillRect(W / 2 - 60, 14 + fs + 4, 120, 4);
       ctx.fillStyle = m > 1 ? "#ffd84a" : "#cfd8ff";
-      ctx.fillRect(W / 2 - 60, 14 + 17 + m * 2 + 4, 120 * clamp(comboTimer / COMBO_WINDOW, 0, 1), 4);
+      ctx.fillRect(W / 2 - 60, 14 + fs + 4, 120 * clamp(comboTimer / COMBO_WINDOW, 0, 1), 4);
     }
   }
 
@@ -1239,9 +1709,15 @@
       ctx.translate(-kcam.x, -kcam.y);
     }
     drawBackground();
-    enemies.forEach(function (e) { if (e.dead) drawFigure(e, e.color, false); });
+    drawGroundLitter();
+    drawMotes();
+    enemies.forEach(function (e) {
+      if (!e.dead) return;
+      if (e.rag) drawRagdoll(e, e.hit > 0 ? "#ffffff" : e.color); else drawFigure(e, e.color, false);
+    });
     enemies.forEach(function (e) { if (!e.dead) drawFigure(e, e.color, false); });
-    drawFigure(player, "#39ff88", true);
+    if (player.rag) drawRagdoll(player, "#39ff88"); else drawFigure(player, "#39ff88", true);
+    drawDebris();
     bombers.forEach(drawBomber);
     drawLasers();
     drawEnemyBars();
@@ -1251,8 +1727,14 @@
     drawFloaters();
     ctx.restore();
 
-    if (hurtFlash > 0) {
-      ctx.fillStyle = "rgba(255,40,60," + (hurtFlash * 0.7) + ")";
+    // red vignette: a hard pulse on every hit, and a slow heartbeat while on the last point of health
+    var low = state === "playing" && player.hp === 1 ? 0.25 + 0.15 * Math.sin(time * 6) : 0;
+    var vig = Math.max(hurtFlash * 1.8, low);
+    if (vig > 0) {
+      var vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.95);
+      vg.addColorStop(0, "rgba(255,40,60," + (vig * 0.12) + ")");
+      vg.addColorStop(1, "rgba(255,40,60," + clamp(vig, 0, 0.85) + ")");
+      ctx.fillStyle = vg;
       ctx.fillRect(0, 0, W, H);
     }
     drawHud();
@@ -1283,15 +1765,19 @@
     var dt = Math.min(0.05, (ts - (lastTs || ts)) / 1000);
     lastTs = ts;
     if (state === "playing") {
-      if (slowmo > 0) { slowmo -= dt; dt *= SLOW_SCALE; }
-      update(dt);
+      if (hitstop > 0) hitstop -= dt; // a few frozen frames sell each kill
+      else {
+        if (slowmo > 0) { slowmo -= dt; dt *= SLOW_SCALE; }
+        update(dt);
+      }
     }
     else if (state === "over") {
       // let the battlefield keep moving behind the game-over card
       enemies.forEach(function (e) { if (e.dead) updateEnemy(e, dt); });
-      particles.forEach(function (pt) { pt.life -= dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; });
-      particles = particles.filter(function (pt) { return pt.life > 0; });
+      if (player.rag) stepRagdoll(player, dt);
+      stepDecor(dt);
       hurtFlash = Math.max(0, hurtFlash - dt);
+      shake = Math.max(0, shake - dt * 20);
     }
     draw();
     requestAnimationFrame(frame);
@@ -1314,6 +1800,7 @@
     toCanvas(e);
     if (e.button !== 0) return;
     e.preventDefault();
+    audioInit();
     if (state === "ready" || state === "over") { begin(); return; }
     if (state === "paused") { state = "playing"; return; }
     mouse.down = true;
@@ -1328,13 +1815,14 @@
 
   window.addEventListener("keydown", function (e) {
     var k = e.key.toLowerCase();
-    var handled = ["a", "d", "w", " ", "arrowleft", "arrowright", "arrowup", "arrowdown", "s", "r", "p", "shift"];
+    var handled = ["a", "d", "w", " ", "arrowleft", "arrowright", "arrowup", "arrowdown", "s", "r", "p", "m", "shift"];
     if (handled.indexOf(k) < 0) return;
     if (k === " " || k.indexOf("arrow") === 0) e.preventDefault();
     keys[k] = true;
     if (e.repeat) return;
     if ((k === "w" || k === " " || k === "arrowup") && state === "playing") tryJump();
     if (k === "r" && state === "playing") startReload();
+    if (k === "m") setMuted(!muted);
     if (k === "p") {
       if (state === "playing") { state = "paused"; mouse.down = false; }
       else if (state === "paused") state = "playing";
