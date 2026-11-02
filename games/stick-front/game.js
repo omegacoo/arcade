@@ -1037,8 +1037,8 @@
     ctx.lineJoin = "round";
 
     // far hills (parallax 0.2)
-    ctx.strokeStyle = sky3("#4f86b8", "#7a4a7a", "#2d3566");
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = sky3("#6a9cc6", "#8a5a85", "#262d5a");
+    ctx.lineWidth = 1;
     ctx.beginPath();
     var fx = camX * 0.2;
     for (var x = -10; x <= W + 10; x += 10) {
@@ -1048,37 +1048,15 @@
     }
     ctx.stroke();
 
-    // perimeter fence (parallax 0.75)
-    ctx.strokeStyle = "#4a5688";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    var f2 = camX * 0.75, post = 60;
-    var p0 = Math.floor(f2 / post) - 1;
-    for (var k = p0; k <= p0 + W / post + 3; k++) {
-      var px = k * post - f2;
-      line(px, GY - 8, px, GY - 40);
-      line(px, GY - 40, px + post, GY - 36);
-      line(px, GY - 8, px + post, GY - 36);
-      line(px, GY - 36, px + post, GY - 8);
-    }
-    ctx.stroke();
-
     drawBase();
 
     // ground
-    ctx.strokeStyle = "#6a77b0";
-    ctx.lineWidth = 2;
+    ctx.fillStyle = "rgba(255,230,120,0.14)";
+    ctx.fillRect(0, GY, W, 7);
+    ctx.strokeStyle = "#ffe9a0";
+    ctx.lineWidth = 3;
     ctx.beginPath();
     line(0, GY, W, GY);
-    ctx.stroke();
-    ctx.strokeStyle = "#3a4373";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    var gp = Math.floor(camX / 40) - 1;
-    for (var q = gp; q < gp + W / 40 + 3; q++) {
-      var gx = q * 40 - camX + hash(q + 3) * 20;
-      line(gx, GY + 12 + hash(q) * 40, gx + 14, GY + 12 + hash(q) * 40);
-    }
     ctx.stroke();
 
     // props in the yard between the buildings
@@ -1089,7 +1067,7 @@
   function drawBase() {
     ctx.lineWidth = 2;
     // central radar/comms tower that the high catwalks hang off
-    ctx.strokeStyle = "#5967a3";
+    ctx.strokeStyle = "#3b4680";
     ctx.beginPath();
     line(482, 270, 478, GY); line(518, 270, 522, GY);
     for (var my = 270; my < GY; my += 40) {
@@ -1109,10 +1087,10 @@
     ctx.beginPath();
     ctx.arc(500, 212, 3, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = "#5967a3";
+    ctx.strokeStyle = "#3b4680";
     STRUCTS.forEach(function (s) {
       var x = s.x, w = s.w, t = s.top, h = GY - t;
-      ctx.strokeStyle = "#5967a3";
+      ctx.strokeStyle = "#3b4680";
       ctx.fillStyle = "#141836";
       if (s.type === "deck") {
         // catwalk off the central radar tower: truss underside, outer support leg, railing
@@ -1203,6 +1181,17 @@
         }
         ctx.stroke();
       }
+    });
+    // walkable surfaces stand out: bright edge over a soft glow
+    STRUCTS.forEach(function (s) {
+      var x0 = s.type === "tower" ? s.x - 8 : s.x - 4, x1 = s.type === "tower" ? s.x + s.w + 8 : s.x + s.w + 4;
+      ctx.fillStyle = "rgba(255,230,120,0.14)";
+      ctx.fillRect(x0, s.top, x1 - x0, 7);
+      ctx.strokeStyle = "#ffe9a0";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      line(x0, s.top, x1, s.top);
+      ctx.stroke();
     });
   }
 
