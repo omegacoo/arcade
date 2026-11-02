@@ -581,11 +581,11 @@
     ctx.stroke();
     ctx.lineWidth = 3;
     ctx.beginPath();
-    var frontHand = { x: ox + ca * 17, y: oy + sa * 17 };
-    var backHand = { x: ox + ca * 2, y: oy + sa * 2 + 2 };
+    var frontHand = { x: ox + ca * 22, y: oy + sa * 22 };
+    var backHand = { x: ox + ca * 11, y: oy + sa * 11 + 1 };
     // two-bone arms: elbows bend downward so the arms follow the rifle as it swings
     function arm(hand) {
-      var sx = x, sy = shY + 1, seg = 13;
+      var sx = x, sy = shY + 1, seg = 14;
       var dx = hand.x - sx, dy = hand.y - sy;
       var d = Math.min(Math.sqrt(dx * dx + dy * dy), seg * 2 - 0.01) || 0.01;
       var h = Math.sqrt(seg * seg - (d / 2) * (d / 2));
