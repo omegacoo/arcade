@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stick Front - Ben's Arcade</title>
+  <link rel="stylesheet" href="../../css/site.css">
+  <style>
+    .cabinet { max-width: 860px; }
+    .scores { max-width: 860px; }
+    .cabinet canvas { image-rendering: auto; cursor: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="../../">&larr; Back to Ben's Arcade</a>
+    <div class="cabinet">
+      <div class="hud"><span>STICK FRONT</span><span>SCORE: <span id="score">0</span></span></div>
+      <canvas id="game" width="800" height="450"></canvas>
+      <p class="hint">A/D move, W/Space jump, mouse to aim, hold left click to fire, R to reload, P to pause. Click to start. (Mouse and keyboard required.)</p>
+    </div>
+    <section class="scores">
+      <h2>High Scores</h2>
+      <ol id="scores"></ol>
+    </section>
+  </div>
+  <script src="../../js/scores.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

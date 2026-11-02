@@ -1,9 +1,9 @@
 [
   {
-    "id": "snake",
-    "title": "Snake",
-    "description": "Eat, grow, don't hit yourself.",
-    "thumb": "games/snake/thumb.svg",
-    "path": "games/snake/"
+    "id": "stick-front",
+    "title": "Stick Front",
+    "description": "Hold the base. Aim with the mouse, shoot the stick army.",
+    "thumb": "games/stick-front/thumb.svg",
+    "path": "games/stick-front/"
   }
 ]
