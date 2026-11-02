@@ -1,5 +1,5 @@
 // Shared local high-score helper. Scores live in the player's browser only.
-// Usage: Scores.add("snake", 120); Scores.get("snake"); Scores.render("snake", listElement);
+// Usage: Scores.add("my-game", 120); Scores.get("my-game"); Scores.render("my-game", listElement);
 window.Scores = (function () {
   var MAX = 10;
 

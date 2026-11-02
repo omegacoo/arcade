@@ -14,8 +14,8 @@ Then visit http://localhost:8000.
 
 ## Add a game
 
-1. Copy `games/snake/` to `games/<your-id>/` and replace `game.js` and `thumb.svg` (a 4:3 image).
-2. Edit the `<title>`, HUD label and hint text in the new `index.html`.
+1. Create `games/<your-id>/` with an `index.html`, a `game.js` and a `thumb.svg` (a 4:3 image).
+2. In `index.html`, include `../../js/scores.js` and set the `<title>`, HUD label and hint text.
 3. In `game.js`, set `GAME_ID` to `<your-id>`. Call `Scores.add(GAME_ID, score)` on game over and `Scores.render(GAME_ID, listElement)` to show the table.
 4. Add an entry to `games.json`:
    ```json
